@@ -1,0 +1,26 @@
+{
+  "painting_path": "data/sample_paintings/sample_00_landscape.png",
+  "config": {
+    "num_frames": 10,
+    "trajectory": "spiral",
+    "angle_deg": 30.0,
+    "baseline": 0.15,
+    "depth_strength": 0.85,
+    "enable_depth_warp": true,
+    "enable_stroke_attn": true,
+    "enable_painting_anchor": true,
+    "enable_depth_warp_consistency": true,
+    "enable_stroke_coherence": true,
+    "enable_painting_view": true
+  },
+  "num_strokes": 5,
+  "num_gaussians": 4499,
+  "align_loss_initial": 0.21002036333084106,
+  "align_loss_final": 0.0007479365449398756,
+  "align_loss_drop": 0.996438742733905,
+  "painting_l1": 0.4335878789424896,
+  "painting_lpips": 0.4284525871276855,
+  "stroke_coherence": 0.10753121700255235,
+  "temporal_smoothness": 0.06814303580257627,
+  "runtime_s": 14.946202993392944
+}

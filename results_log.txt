@@ -1,0 +1,222 @@
+
+=== MAIN: full method on 3 paintings ===
+  painting: sample_00_landscape
+D:\Code\video_to_world\paint2world\pipeline.py:29: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\torch\csrc\utils\tensor_numpy.cpp:212.)
+  return torch.from_numpy(arr_uint8).float().permute(2, 0, 1).to(device) / 255.0
+  [Stage 1 fallback] iter 4/40  loss=0.014125
+  [Stage 1 fallback] iter 8/40  loss=0.011366
+  [Stage 1 fallback] iter 12/40  loss=0.008785
+  [Stage 1 fallback] iter 16/40  loss=0.006915
+  [Stage 1 fallback] iter 20/40  loss=0.005390
+  [Stage 1 fallback] iter 24/40  loss=0.004624
+  [Stage 1 fallback] iter 28/40  loss=0.004116
+  [Stage 1 fallback] iter 32/40  loss=0.003465
+  [Stage 1 fallback] iter 36/40  loss=0.002787
+  [Stage 1 fallback] iter 40/40  loss=0.002183
+  painting: sample_01_still_life
+  [Stage 1 fallback] iter 4/40  loss=0.015334
+  [Stage 1 fallback] iter 8/40  loss=0.012546
+  [Stage 1 fallback] iter 12/40  loss=0.009558
+  [Stage 1 fallback] iter 16/40  loss=0.007574
+  [Stage 1 fallback] iter 20/40  loss=0.006219
+  [Stage 1 fallback] iter 24/40  loss=0.005300
+  [Stage 1 fallback] iter 28/40  loss=0.004496
+  [Stage 1 fallback] iter 32/40  loss=0.003630
+  [Stage 1 fallback] iter 36/40  loss=0.002919
+  [Stage 1 fallback] iter 40/40  loss=0.002377
+  painting: sample_02_portrait
+  [Stage 1 fallback] iter 4/40  loss=0.013861
+  [Stage 1 fallback] iter 8/40  loss=0.012245
+  [Stage 1 fallback] iter 12/40  loss=0.010006
+  [Stage 1 fallback] iter 16/40  loss=0.007350
+  [Stage 1 fallback] iter 20/40  loss=0.005566
+  [Stage 1 fallback] iter 24/40  loss=0.004564
+  [Stage 1 fallback] iter 28/40  loss=0.003472
+  [Stage 1 fallback] iter 32/40  loss=0.002566
+  [Stage 1 fallback] iter 36/40  loss=0.002336
+  [Stage 1 fallback] iter 40/40  loss=0.001901
+
+=== ABLATION: 6 variants on landscape ===
+  variant: full
+  [Stage 1 fallback] iter 4/40  loss=0.014401
+  [Stage 1 fallback] iter 8/40  loss=0.010983
+  [Stage 1 fallback] iter 12/40  loss=0.008833
+  [Stage 1 fallback] iter 16/40  loss=0.007249
+  [Stage 1 fallback] iter 20/40  loss=0.005698
+  [Stage 1 fallback] iter 24/40  loss=0.004807
+  [Stage 1 fallback] iter 28/40  loss=0.004220
+  [Stage 1 fallback] iter 32/40  loss=0.003502
+  [Stage 1 fallback] iter 36/40  loss=0.002869
+  [Stage 1 fallback] iter 40/40  loss=0.002282
+  variant: no_depth_warp
+  [Stage 1 fallback] iter 4/40  loss=0.006739
+  [Stage 1 fallback] iter 8/40  loss=0.005142
+  [Stage 1 fallback] iter 12/40  loss=0.004165
+  [Stage 1 fallback] iter 16/40  loss=0.003439
+  [Stage 1 fallback] iter 20/40  loss=0.002879
+  [Stage 1 fallback] iter 24/40  loss=0.002423
+  [Stage 1 fallback] iter 28/40  loss=0.002029
+  [Stage 1 fallback] iter 32/40  loss=0.001710
+  [Stage 1 fallback] iter 36/40  loss=0.001445
+  [Stage 1 fallback] iter 40/40  loss=0.001218
+  variant: no_stroke_attn
+  [Stage 1 fallback] iter 4/40  loss=0.014388
+  [Stage 1 fallback] iter 8/40  loss=0.011340
+  [Stage 1 fallback] iter 12/40  loss=0.009102
+  [Stage 1 fallback] iter 16/40  loss=0.007364
+  [Stage 1 fallback] iter 20/40  loss=0.005833
+  [Stage 1 fallback] iter 24/40  loss=0.004872
+  [Stage 1 fallback] iter 28/40  loss=0.004277
+  [Stage 1 fallback] iter 32/40  loss=0.003547
+  [Stage 1 fallback] iter 36/40  loss=0.002812
+  [Stage 1 fallback] iter 40/40  loss=0.002250
+  variant: no_painting_anchor
+  [Stage 1 fallback] iter 4/40  loss=0.014233
+  [Stage 1 fallback] iter 8/40  loss=0.010951
+  [Stage 1 fallback] iter 12/40  loss=0.008905
+  [Stage 1 fallback] iter 16/40  loss=0.007412
+  [Stage 1 fallback] iter 20/40  loss=0.005777
+  [Stage 1 fallback] iter 24/40  loss=0.004821
+  [Stage 1 fallback] iter 28/40  loss=0.004124
+  [Stage 1 fallback] iter 32/40  loss=0.003418
+  [Stage 1 fallback] iter 36/40  loss=0.002774
+  [Stage 1 fallback] iter 40/40  loss=0.002209
+  variant: no_depth_warp_consistency
+  [Stage 1 fallback] iter 4/40  loss=0.014074
+  [Stage 1 fallback] iter 8/40  loss=0.010977
+  [Stage 1 fallback] iter 12/40  loss=0.008734
+  [Stage 1 fallback] iter 16/40  loss=0.007304
+  [Stage 1 fallback] iter 20/40  loss=0.005892
+  [Stage 1 fallback] iter 24/40  loss=0.005032
+  [Stage 1 fallback] iter 28/40  loss=0.004277
+  [Stage 1 fallback] iter 32/40  loss=0.003469
+  [Stage 1 fallback] iter 36/40  loss=0.002808
+  [Stage 1 fallback] iter 40/40  loss=0.002271
+  variant: no_stroke_coherence
+  [Stage 1 fallback] iter 4/40  loss=0.014092
+  [Stage 1 fallback] iter 8/40  loss=0.010646
+  [Stage 1 fallback] iter 12/40  loss=0.008922
+  [Stage 1 fallback] iter 16/40  loss=0.007357
+  [Stage 1 fallback] iter 20/40  loss=0.005710
+  [Stage 1 fallback] iter 24/40  loss=0.004716
+  [Stage 1 fallback] iter 28/40  loss=0.004072
+  [Stage 1 fallback] iter 32/40  loss=0.003536
+  [Stage 1 fallback] iter 36/40  loss=0.002844
+  [Stage 1 fallback] iter 40/40  loss=0.002272
+  variant: no_painting_view
+  [Stage 1 fallback] iter 4/40  loss=0.014507
+  [Stage 1 fallback] iter 8/40  loss=0.011346
+  [Stage 1 fallback] iter 12/40  loss=0.008624
+  [Stage 1 fallback] iter 16/40  loss=0.006916
+  [Stage 1 fallback] iter 20/40  loss=0.005432
+  [Stage 1 fallback] iter 24/40  loss=0.004664
+  [Stage 1 fallback] iter 28/40  loss=0.004085
+  [Stage 1 fallback] iter 32/40  loss=0.003441
+  [Stage 1 fallback] iter 36/40  loss=0.002825
+  [Stage 1 fallback] iter 40/40  loss=0.002250
+  variant: no_all_painting_controls
+  [Stage 1 fallback] iter 4/40  loss=0.006792
+  [Stage 1 fallback] iter 8/40  loss=0.005187
+  [Stage 1 fallback] iter 12/40  loss=0.004198
+  [Stage 1 fallback] iter 16/40  loss=0.003460
+  [Stage 1 fallback] iter 20/40  loss=0.002908
+  [Stage 1 fallback] iter 24/40  loss=0.002432
+  [Stage 1 fallback] iter 28/40  loss=0.002040
+  [Stage 1 fallback] iter 32/40  loss=0.001715
+  [Stage 1 fallback] iter 36/40  loss=0.001473
+  [Stage 1 fallback] iter 40/40  loss=0.001262
+
+=== TRAJECTORY: 4 types on landscape ===
+  trajectory: orbit
+  [Stage 1 fallback] iter 4/40  loss=0.013993
+  [Stage 1 fallback] iter 8/40  loss=0.011244
+  [Stage 1 fallback] iter 12/40  loss=0.009102
+  [Stage 1 fallback] iter 16/40  loss=0.007164
+  [Stage 1 fallback] iter 20/40  loss=0.005575
+  [Stage 1 fallback] iter 24/40  loss=0.004725
+  [Stage 1 fallback] iter 28/40  loss=0.004105
+  [Stage 1 fallback] iter 32/40  loss=0.003501
+  [Stage 1 fallback] iter 36/40  loss=0.002912
+  [Stage 1 fallback] iter 40/40  loss=0.002362
+  trajectory: dolly
+  [Stage 1 fallback] iter 4/40  loss=0.009302
+  [Stage 1 fallback] iter 8/40  loss=0.005417
+  [Stage 1 fallback] iter 12/40  loss=0.002507
+  [Stage 1 fallback] iter 16/40  loss=0.001538
+  [Stage 1 fallback] iter 20/40  loss=0.001211
+  [Stage 1 fallback] iter 24/40  loss=0.000841
+  [Stage 1 fallback] iter 28/40  loss=0.000523
+  [Stage 1 fallback] iter 32/40  loss=0.000374
+  [Stage 1 fallback] iter 36/40  loss=0.000303
+  [Stage 1 fallback] iter 40/40  loss=0.000230
+  trajectory: pan
+  [Stage 1 fallback] iter 4/40  loss=0.008019
+  [Stage 1 fallback] iter 8/40  loss=0.007709
+  [Stage 1 fallback] iter 12/40  loss=0.005946
+  [Stage 1 fallback] iter 16/40  loss=0.004434
+  [Stage 1 fallback] iter 20/40  loss=0.003028
+  [Stage 1 fallback] iter 24/40  loss=0.002229
+  [Stage 1 fallback] iter 28/40  loss=0.001620
+  [Stage 1 fallback] iter 32/40  loss=0.001221
+  [Stage 1 fallback] iter 36/40  loss=0.000888
+  [Stage 1 fallback] iter 40/40  loss=0.000675
+  trajectory: spiral
+  [Stage 1 fallback] iter 4/40  loss=0.014393
+  [Stage 1 fallback] iter 8/40  loss=0.013041
+  [Stage 1 fallback] iter 12/40  loss=0.009823
+  [Stage 1 fallback] iter 16/40  loss=0.007865
+  [Stage 1 fallback] iter 20/40  loss=0.006902
+  [Stage 1 fallback] iter 24/40  loss=0.005958
+  [Stage 1 fallback] iter 28/40  loss=0.005174
+  [Stage 1 fallback] iter 32/40  loss=0.004296
+  [Stage 1 fallback] iter 36/40  loss=0.003633
+  [Stage 1 fallback] iter 40/40  loss=0.002946
+
+=== SCALABILITY: frame-count sweep on landscape ===
+  num_frames: 8
+  [Stage 1 fallback] iter 4/40  loss=0.011314
+  [Stage 1 fallback] iter 8/40  loss=0.008777
+  [Stage 1 fallback] iter 12/40  loss=0.007030
+  [Stage 1 fallback] iter 16/40  loss=0.005796
+  [Stage 1 fallback] iter 20/40  loss=0.004563
+  [Stage 1 fallback] iter 24/40  loss=0.003829
+  [Stage 1 fallback] iter 28/40  loss=0.003242
+  [Stage 1 fallback] iter 32/40  loss=0.002791
+  [Stage 1 fallback] iter 36/40  loss=0.002281
+  [Stage 1 fallback] iter 40/40  loss=0.001852
+  num_frames: 12
+  [Stage 1 fallback] iter 4/40  loss=0.017374
+  [Stage 1 fallback] iter 8/40  loss=0.012843
+  [Stage 1 fallback] iter 12/40  loss=0.010088
+  [Stage 1 fallback] iter 16/40  loss=0.008483
+  [Stage 1 fallback] iter 20/40  loss=0.006802
+  [Stage 1 fallback] iter 24/40  loss=0.005655
+  [Stage 1 fallback] iter 28/40  loss=0.004835
+  [Stage 1 fallback] iter 32/40  loss=0.004038
+  [Stage 1 fallback] iter 36/40  loss=0.003294
+  [Stage 1 fallback] iter 40/40  loss=0.002639
+  num_frames: 16
+  [Stage 1 fallback] iter 4/40  loss=0.022323
+  [Stage 1 fallback] iter 8/40  loss=0.017545
+  [Stage 1 fallback] iter 12/40  loss=0.014199
+  [Stage 1 fallback] iter 16/40  loss=0.011517
+  [Stage 1 fallback] iter 20/40  loss=0.008937
+  [Stage 1 fallback] iter 24/40  loss=0.007640
+  [Stage 1 fallback] iter 28/40  loss=0.006571
+  [Stage 1 fallback] iter 32/40  loss=0.005552
+  [Stage 1 fallback] iter 36/40  loss=0.004463
+  [Stage 1 fallback] iter 40/40  loss=0.003613
+  num_frames: 20
+  [Stage 1 fallback] iter 4/40  loss=0.028101
+  [Stage 1 fallback] iter 8/40  loss=0.021866
+  [Stage 1 fallback] iter 12/40  loss=0.017642
+  [Stage 1 fallback] iter 16/40  loss=0.014398
+  [Stage 1 fallback] iter 20/40  loss=0.011331
+  [Stage 1 fallback] iter 24/40  loss=0.009565
+  [Stage 1 fallback] iter 28/40  loss=0.008143
+  [Stage 1 fallback] iter 32/40  loss=0.006823
+  [Stage 1 fallback] iter 36/40  loss=0.005543
+  [Stage 1 fallback] iter 40/40  loss=0.004486
+
+=== ALL EXPERIMENTS DONE ===
+Results in results/

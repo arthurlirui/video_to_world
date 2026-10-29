@@ -1,0 +1,26 @@
+{
+  "painting_path": "data/sample_paintings/sample_02_portrait.png",
+  "config": {
+    "num_frames": 10,
+    "trajectory": "orbit",
+    "angle_deg": 25.0,
+    "baseline": 0.18,
+    "depth_strength": 0.85,
+    "enable_depth_warp": true,
+    "enable_stroke_attn": true,
+    "enable_painting_anchor": true,
+    "enable_depth_warp_consistency": true,
+    "enable_stroke_coherence": true,
+    "enable_painting_view": true
+  },
+  "num_strokes": 1,
+  "num_gaussians": 4606,
+  "align_loss_initial": 0.17021389305591583,
+  "align_loss_final": 0.002070379676297307,
+  "align_loss_drop": 0.9878365999441822,
+  "painting_l1": 0.21524083614349365,
+  "painting_lpips": 0.2113635132710139,
+  "stroke_coherence": 0.040193315475217754,
+  "temporal_smoothness": 0.04123941229449378,
+  "runtime_s": 15.946616172790527
+}
