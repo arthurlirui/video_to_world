@@ -23,6 +23,7 @@ import torch
 
 from .configs import Paint2WorldConfig
 from . import painting_analysis, video_generation, painting_anchored_alignment, stroke_coherent_gs
+from . import object_segmentation, triposplat, scene_canvas
 
 
 def _to_torch_img(arr_uint8: np.ndarray, device: torch.device) -> torch.Tensor:
@@ -115,13 +116,67 @@ def run_pipeline(cfg: Paint2WorldConfig, device: Optional[torch.device] = None) 
     painting_depth_t = torch.from_numpy(pa["depth"]).float().to(device)
     painting_strokes_t = torch.from_numpy(pa["strokes"]).long().to(device)
 
+    # ----- Stage -0.5: Object-level scene construction -----
+    # Image segmentation -> TripoSplat 3D objects -> spatial-dependency graph
+    # -> 3D scene canvas. The canvas conditions Stage 0 (composited depth
+    # control) and Stage 3.2 (object-rigid anchors).
+    canvas_result = None
+    if cfg.run_stage_object:
+        print("[Paint2World] Stage -0.5: object segmentation + TripoSplat + scene canvas")
+        obj_root = os.path.join(cfg.out_root, "stage_object")
+        cfg.objects.out_dir = os.path.join(obj_root, "objects")
+        seg = object_segmentation.segment_objects(
+            cfg.objects, pa["image"], pa["depth"], strokes=pa["strokes"]
+        )
+        print(f"[Paint2World]   objects: {seg['num_objects']}")
+        ts = triposplat.generate_objects(
+            cfg.triposplat, pa["image"], pa["depth"], seg,
+            out_dir=os.path.join(obj_root, "triposplat"),
+        )
+        # The canvas lives in the painting-camera frame; the painting camera
+        # pose is trajectory[0] once Stage 0 runs. For a standalone Stage
+        # -0.5 (Stage 0 skipped) fall back to the identity pose, which is the
+        # gauge the mock trajectory starts from.
+        if cfg.run_stage_0:
+            probe_traj = video_generation.make_camera_trajectory(
+                num_frames=cfg.video.num_frames,
+                trajectory_type=cfg.video.trajectory_type,
+                angle_deg=cfg.video.trajectory_angle_deg,
+                baseline=cfg.video.trajectory_baseline,
+                device=device,
+            )
+            painting_c2w_probe = probe_traj[0]
+        else:
+            painting_c2w_probe = torch.eye(4, device=device)
+        canvas_result = scene_canvas.build_scene_canvas(
+            cfg.canvas, pa["image"], pa["depth"], seg, ts,
+            painting_c2w=painting_c2w_probe,
+            out_dir=os.path.join(obj_root, "canvas"),
+            strokes=pa["strokes"],
+        )
+        print(
+            f"[Paint2World]   relations: {canvas_result['num_relations']}, "
+            f"placement adjusted: {canvas_result['placement']['adjusted']}"
+        )
+        results["stages"]["object_scene"] = {
+            "out_dir": obj_root,
+            "num_objects": seg["num_objects"],
+            "num_relations": canvas_result["num_relations"],
+            "placement_adjusted": canvas_result["placement"]["adjusted"],
+        }
+
     # ----- Stage 0: Painting-conditioned video generation -----
     if cfg.run_stage_0:
         print("[Paint2World] Stage 0: painting-conditioned video generation")
         video_cfg = cfg.video
         video_cfg.out_dir = os.path.join(cfg.out_root, "stage_0")
+        canvas_depth = None
+        if canvas_result is not None and cfg.canvas.enable_canvas_depth_control:
+            H, W = pa["image"].shape[:2]
+            canvas_depth = canvas_result["canvas"].canvas_depth(H, W).to(device)
         vg = video_generation.generate_video(
-            video_cfg, painting_rgb_t, painting_depth_t, painting_strokes_t
+            video_cfg, painting_rgb_t, painting_depth_t, painting_strokes_t,
+            depth_control_override=canvas_depth,
         )
         results["stages"]["video_generation"] = {
             "out_dir": vg["out_dir"],
@@ -229,18 +284,65 @@ def run_pipeline(cfg: Paint2WorldConfig, device: Optional[torch.device] = None) 
         gs_frames = frames[::sub]
         gs_c2w = [trajectory[i] for i in range(0, N, sub)]
 
-        gs = stroke_coherent_gs.train_stroke_coherent_gs(
-            cfg.gs,
-            canonical_pts=align["canonical_pts"].to(device),
-            canonical_cols=align["canonical_cols"].to(device),
-            canonical_strokes=pa["strokes"],
-            frame_images=gs_frames,
-            frame_c2w_list=gs_c2w,
-            painting_rgb=painting_rgb_t,
-            painting_c2w=painting_c2w,
-            out_dir=gs_out_dir,
-            num_iters=300,
-        )
+        if canvas_result is not None:
+            # Canvas-anchored training: init from the canvas (objects +
+            # background), keep objects rigid when enabled, and preserve the
+            # dependency graph during optimisation. Stroke labels were
+            # assigned to the canvas at build time.
+            canvas = canvas_result["canvas"]
+            if cfg.canvas.enable_object_rigid_gs:
+                print("[Paint2World]   object-rigid anchors: ON")
+                gs = scene_canvas.train_canvas_anchored_gs(
+                    canvas, cfg.canvas, cfg.gs,
+                    frame_images=gs_frames,
+                    frame_c2w_list=gs_c2w,
+                    painting_rgb=painting_rgb_t,
+                    painting_c2w=painting_c2w,
+                    out_dir=gs_out_dir,
+                    num_iters=300,
+                )
+            else:
+                print("[Paint2World]   object-rigid anchors: OFF (free-position training)")
+                g_cam = canvas.canvas_gaussians_camera()
+                gw = canvas.world_gaussians()
+                gw["stroke_label"] = g_cam.get(
+                    "stroke_label",
+                    torch.zeros(gw["position"].shape[0], dtype=torch.long),
+                )
+                gs = stroke_coherent_gs.train_stroke_coherent_gs_fallback(
+                    gaussians=gw,
+                    frame_images=gs_frames,
+                    frame_c2w_list=gs_c2w,
+                    painting_rgb=painting_rgb_t,
+                    painting_c2w=painting_c2w,
+                    cfg=cfg.gs,
+                    num_iters=300,
+                )
+                os.makedirs(gs_out_dir, exist_ok=True)
+                np.savez_compressed(
+                    os.path.join(gs_out_dir, "gaussians.npz"),
+                    position=gs["position"].cpu().numpy(),
+                    sh_dc=gs["sh_dc"].cpu().numpy(),
+                    opacity=gs["opacity"].cpu().numpy(),
+                    scale=gs["scale"].cpu().numpy(),
+                    rotation=gs["rotation"].cpu().numpy(),
+                    stroke_label=gs["stroke_label"].cpu().numpy(),
+                    object_label=g_cam["object_label"].cpu().numpy(),
+                    config=asdict(cfg.gs),
+                )
+        else:
+            gs = stroke_coherent_gs.train_stroke_coherent_gs(
+                cfg.gs,
+                canonical_pts=align["canonical_pts"].to(device),
+                canonical_cols=align["canonical_cols"].to(device),
+                canonical_strokes=pa["strokes"],
+                frame_images=gs_frames,
+                frame_c2w_list=gs_c2w,
+                painting_rgb=painting_rgb_t,
+                painting_c2w=painting_c2w,
+                out_dir=gs_out_dir,
+                num_iters=300,
+            )
         results["stages"]["gs"] = {"out_dir": gs_out_dir}
 
     print(f"[Paint2World] Done. Outputs in {cfg.out_root}")
@@ -259,6 +361,12 @@ def main() -> None:
     parser.add_argument("--depth_strength", type=float, default=0.85, help="Depth-warp control strength")
     parser.add_argument("--stroke_coherence", action="store_true", default=True)
     parser.add_argument("--no_stage_minus_1", action="store_true")
+    parser.add_argument("--no_stage_object", action="store_true",
+                        help="Skip Stage -0.5 (object segmentation + TripoSplat + canvas)")
+    parser.add_argument("--no_canvas_depth", action="store_true",
+                        help="Stage 0 warps the raw painting depth instead of the canvas depth")
+    parser.add_argument("--no_object_rigid", action="store_true",
+                        help="Train scene Gaussians with free positions instead of object-rigid anchors")
     parser.add_argument("--no_stage_0", action="store_true")
     parser.add_argument("--no_stage_1", action="store_true")
     parser.add_argument("--no_stage_3", action="store_true")
@@ -273,6 +381,9 @@ def main() -> None:
     cfg.video.depth_warp_control_strength = args.depth_strength
     cfg.video.stroke_consistency_attention = args.stroke_coherence
     cfg.run_stage_minus_1 = not args.no_stage_minus_1
+    cfg.run_stage_object = not args.no_stage_object
+    cfg.canvas.enable_canvas_depth_control = not args.no_canvas_depth
+    cfg.canvas.enable_object_rigid_gs = not args.no_object_rigid
     cfg.run_stage_0 = not args.no_stage_0
     cfg.run_stage_1 = not args.no_stage_1
     cfg.run_stage_3 = not args.no_stage_3

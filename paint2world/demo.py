@@ -22,6 +22,7 @@ import torch
 
 from .configs import Paint2WorldConfig
 from . import data_utils, painting_analysis, video_generation, painting_anchored_alignment, stroke_coherent_gs
+from . import object_segmentation, triposplat, scene_canvas
 
 
 def _build_config(painting_path: str, out_root: str, num_frames: int, trajectory: str,
@@ -48,6 +49,41 @@ def run_stage_minus_1(painting_path: str):
         _png_path(os.path.join(pa["out_dir"], "strokes.png")),
         _png_path(os.path.join(pa["out_dir"], "confidence.png")),
         f"Detected {pa['num_strokes']} brush-stroke segments.",
+    )
+
+
+def run_stage_object(painting_path: str):
+    """Stage -0.5: object segmentation -> TripoSplat 3D objects -> scene canvas."""
+    out_root = tempfile.mkdtemp(prefix="p2w_obj_")
+    cfg = Paint2WorldConfig(out_root=out_root)
+    cfg.painting.painting_path = painting_path
+    cfg.objects.out_dir = os.path.join(out_root, "objects")
+    cfg.triposplat.refinement_iters = 10
+    pa = painting_analysis.analyze_painting(cfg.painting)
+    seg = object_segmentation.segment_objects(cfg.objects, pa["image"], pa["depth"])
+    ts = triposplat.generate_objects(
+        cfg.triposplat, pa["image"], pa["depth"], seg,
+        out_dir=os.path.join(out_root, "triposplat"),
+    )
+    canvas_res = scene_canvas.build_scene_canvas(
+        cfg.canvas, pa["image"], pa["depth"], seg, ts,
+        painting_c2w=torch.eye(4),
+        out_dir=os.path.join(out_root, "canvas"),
+        strokes=pa["strokes"],
+    )
+    n_sup = sum(1 for r in canvas_res["relations"] if r["type"] in ("rests_on", "rests_on_ground"))
+    return (
+        pa["image"],
+        _png_path(os.path.join(cfg.objects.out_dir, "objects.png")),
+        _png_path(os.path.join(out_root, "canvas", "canvas_depth.png")),
+        _png_path(os.path.join(out_root, "canvas", "layout.png")),
+        (
+            f"Detected {seg['num_objects']} objects; "
+            f"{canvas_res['num_relations']} spatial relations "
+            f"({n_sup} support contacts); "
+            f"{ts['combined']['position'].shape[0]} object Gaussians; "
+            f"placed {canvas_res['placement']['adjusted']} floating objects onto supports."
+        ),
     )
 
 
@@ -130,6 +166,19 @@ def build_demo():
             btn1.click(
                 run_stage_minus_1, inputs=[painting_in],
                 outputs=[out_img, out_depth, out_normals, out_strokes, out_conf, out_status_1],
+            )
+        with gr.Tab("Stage -0.5: Objects + Scene Canvas"):
+            btn_obj = gr.Button("Segment objects, generate 3D objects, build canvas")
+            with gr.Row():
+                obj_img = gr.Image(label="Painting")
+                obj_seg = gr.Image(label="Object segmentation")
+            with gr.Row():
+                obj_depth = gr.Image(label="Canvas-composited depth")
+                obj_layout = gr.Image(label="Scene canvas + relations")
+            obj_status = gr.Textbox(label="Status")
+            btn_obj.click(
+                run_stage_object, inputs=[painting_in],
+                outputs=[obj_img, obj_seg, obj_depth, obj_layout, obj_status],
             )
         with gr.Tab("Stage 0: Video Generation"):
             btn2 = gr.Button("Generate 3D-stable video")

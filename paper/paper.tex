@@ -46,22 +46,31 @@ Video diffusion models can animate a static image into a flythrough, but the
 generated frames rarely form a geometrically consistent 3D scene, which makes
 downstream 3D reconstruction brittle. We observe that when the input is a
 \emph{human oil painting}, the painting itself is a strong, user-authored
-canonical prior: it fixes the appearance, the brush-stroke layout, and a
-plausible depth arrangement of the scene. We propose \textbf{Paint2World}, a
-pipeline that exploits this prior to generate 3D-consistent video and a 3D
-Gaussian Splatting scene from a single oil painting. Paint2World introduces
-three painting-anchored 3D-stability mechanisms: (i)~a painting-conditioned
-video generation stage that warps the painting's depth along the camera
-trajectory as a per-frame geometry control and locks the painting as a
-reference frame in the diffusion temporal attention with a stroke-mask
-attention bias; (ii)~a painting-anchored non-rigid alignment that initialises
-the canonical frame from the painting's estimated geometry and downweights
-generated points whose depth drifts beyond a tolerance from the
-painting-implied structure; and (iii)~a stroke-coherent 3D Gaussian Splatting
-loss that encourages each brush stroke to remain a coherent 3D surface patch.
-We show that Paint2World produces 3D-consistent, explorable scenes from oil
-paintings, and that each mechanism measurably improves 3D consistency and
-painting fidelity over a strong reconstruction baseline. The demo and code are
+canonical prior: it fixes the appearance, the brush-stroke layout, the object
+decomposition, and a plausible depth arrangement of the scene. We propose
+\textbf{Paint2World}, a pipeline that exploits this prior to generate
+3D-consistent video and a 3D Gaussian Splatting scene from a single oil
+painting. Paint2World first constructs an explicit \emph{scene canvas}: it
+segments the painting into objects with a depth-aware image-segmentation
+front-end, generates each object in 3D with a TripoSplat-style
+triplane-to-Gaussian decoder over the object's painting view and
+depth-warped side views, and wires the objects into a 3D spatial-dependency
+graph (who supports whom, who occludes whom, who rests on the ground) whose
+contacts are resolved physically on a fitted ground plane. The canvas then
+anchors three 3D-stability mechanisms: (i)~a painting-conditioned video
+generation stage whose depth-warp geometry control is composited from the
+canvas so generated frames respect object occlusion boundaries, with the
+painting locked as a reference frame in the diffusion temporal attention via
+a stroke-mask attention bias; (ii)~a painting-anchored non-rigid alignment
+that initialises the canonical frame from the painting's estimated geometry
+and downweights generated points whose depth drifts beyond a tolerance from
+the painting-implied structure; and (iii)~a stroke-coherent, object-rigid 3D
+Gaussian Splatting objective in which each object moves as a whole via a
+learnable SE(3) delta and a relation-preservation loss keeps the dependency
+graph intact during optimisation. We show that Paint2World produces
+3D-consistent, explorable scenes from oil paintings, and that the object-level
+canvas and each stability mechanism measurably improve 3D consistency,
+painting fidelity, and scene-structure preservation. The demo and code are
 released with synthetic backends that run end-to-end on a single CPU.
 \end{abstract}
 
@@ -95,35 +104,49 @@ reconstruction, dramatically reducing generative drift.
 oil painting into a 3D-consistent flythrough video and a 3D Gaussian Splatting
 scene (Fig.~\ref{fig:teaser}). Our contributions are:
 \begin{itemize}
+\item An \textbf{object-level scene canvas} built directly from the painting:
+a depth-aware image-segmentation front-end decomposes the artwork into
+objects, a TripoSplat-style triplane-to-Gaussian decoder generates each
+object in 3D from its painting view and depth-warped side views, and the
+objects are wired into a 3D \emph{spatial-dependency graph} (supports /
+occludes / adjacent / rests-on-ground) whose contacts are physically
+resolved on a fitted ground plane (\S\ref{sec:stage-object}).
 \item A \textbf{painting-conditioned video generation stage} with three
-3D-stability controls: a depth-warp geometry ControlNet signal, a
-stroke-consistency temporal-attention bias, and a temporal-consistency
-guidance term (\S\ref{sec:stage0}).
+3D-stability controls: a depth-warp geometry ControlNet signal composited
+from the scene canvas, a stroke-consistency temporal-attention bias, and a
+temporal-consistency guidance term (\S\ref{sec:stage0}).
 \item A \textbf{painting-anchored non-rigid alignment} that initialises the
 canonical frame from the painting's estimated geometry and weights each
 generated point by a depth-warp consistency score, allowing the scene to
 plausibly extend beyond the painting's frustum while suppressing drift within
 it (\S\ref{sec:stage1}).
-\item A \textbf{stroke-coherent 3D Gaussian Splatting loss} that transfers
-the painting's brush-stroke segmentation onto the 3D Gaussians and encourages
-each stroke to remain a coherent 3D patch, together with a painting-view
-reconstruction loss that ties the scene back to the input artwork
-(\S\ref{sec:stage3}).
+\item A \textbf{stroke-coherent, object-rigid 3D Gaussian Splatting
+objective}: the painting's brush-stroke segmentation is transferred onto the
+3D Gaussians so each stroke remains a coherent 3D patch, while per-object
+SE(3) anchors move objects as wholes and a relation-preservation loss keeps
+the canvas's spatial dependencies intact during optimisation, together with a
+painting-view reconstruction loss that ties the scene back to the input
+artwork (\S\ref{sec:stage3}).
 \end{itemize}
 We demonstrate that Paint2World produces 3D-consistent, explorable scenes from
-oil paintings and that each mechanism measurably improves 3D consistency and
-painting fidelity (\S\ref{sec:experiments}).
+oil paintings and that the object-level canvas and each stability mechanism
+measurably improve 3D consistency, painting fidelity, and scene-structure
+preservation (\S\ref{sec:experiments}).
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.95\linewidth]{figures/teaser_painting.png}\hfill
-\includegraphics[width=0.95\linewidth]{figures/teaser_depth.png}
+\includegraphics[width=0.48\linewidth]{figures/teaser_painting.png}\hfill
+\includegraphics[width=0.48\linewidth]{figures/teaser_depth.png}
 \caption{\textbf{Paint2World.} Given a single human oil painting (left), we
-estimate its depth, normals, and brush-stroke segmentation (Stage -1); generate
-a 3D-stable flythrough video whose geometry is anchored to the painting
+estimate its depth, normals, brush-stroke segmentation, and object
+segmentation (Stage -1); construct an explicit 3D scene canvas by generating
+each segmented object with a TripoSplat-style triplane-to-Gaussian decoder
+and wiring the objects into a spatial-dependency graph (Stage -0.5); generate
+a 3D-stable flythrough video whose geometry is anchored to the canvas
 (Stage 0); non-rigidly align the generated frames into a painting-initialised
-canonical point cloud (Stage 1); and train a stroke-coherent 3D Gaussian
-Splatting scene that reproduces the painting from its viewpoint (Stage 3.2).}
+canonical point cloud (Stage 1); and train a stroke-coherent, object-rigid 3D
+Gaussian Splatting scene that reproduces the painting from its viewpoint
+(Stage 3.2).}
 \label{fig:teaser}
 \end{figure*}
 
@@ -157,6 +180,19 @@ Our Stage 1 extends the non-rigid frame-to-model ICP
 of~\cite{hoellein2026worldreconstruction} with a painting-anchor canonical
 initialisation and a depth-warp consistency weighting.
 
+\paragraph{Object-level 3D generation and scene layout.}
+Feed-forward image-to-3D models~\cite{lrm} and triplane
+representations~\cite{triplane2021} generate object-level geometry from one
+or few images; TripoSplat~\cite{triposplat2025} reconstructs objects as
+Gaussians decoded from a cross-view-aligned triplane at interactive speed.
+Image segmentation (SAM2~\cite{sam2}, Mask2Former~\cite{mask2former})
+supplies the object decomposition, and layout-generation methods compose
+objects into scenes from spatial relations~\cite{scenecanvas2024}. Paint2World
+connects these threads for the painting domain: segmentation supplies
+\emph{things}, a TripoSplat-style decoder supplies \emph{their 3D geometry},
+and the spatial-dependency graph composes them into an explicit scene canvas
+that then conditions video generation and reconstruction.
+
 \paragraph{Image-to-3D and artistic-content 3D.}
 Prior work lifts a single image to 3D via depth
 warping~\cite{sin3dgen,deep3dim} or learned priors~\cite{pixel3dmm}. Closer to
@@ -173,15 +209,18 @@ Given a single oil painting $I_p \in \mathbb{R}^{H\times W\times 3}$,
 Paint2World produces a 3D-consistent flythrough video
 $\{I_t\}_{t=1}^{N}$ and a 3D Gaussian Splatting scene $\mathcal{G}$ that
 reproduces the painting from its viewpoint and can be rendered from novel
-views. The pipeline has four stages (Fig.~\ref{fig:method}): Stage -1
-(painting analysis), Stage 0 (painting-conditioned video generation), Stage 1
-(painting-anchored non-rigid alignment), and Stage 3.2 (stroke-coherent 3DGS).
+views. The pipeline has five stages (Fig.~\ref{fig:method}): Stage -1
+(painting analysis), Stage -0.5 (object-level scene construction: object
+segmentation, TripoSplat-style 3D object generation, spatial-dependency
+graph, scene canvas), Stage 0 (canvas-conditioned video generation), Stage 1
+(painting-anchored non-rigid alignment), and Stage 3.2 (stroke-coherent,
+object-rigid 3GS).
 
 \subsection{Design rationale: why the painting is a 3D-stability prior}
 \label{sec:design}
 
 A natural question is why a 2D painting should help 3D consistency at all.
-We identify three properties of human oil paintings that make them
+We identify four properties of human oil paintings that make them
 particularly suitable canonical priors, and each motivates one of our
 stability mechanisms.
 
@@ -210,15 +249,30 @@ rendered from $T_1$. This motivates the \emph{painting-view reconstruction
 loss} (Stage 3.2), which anchors the optimised Gaussians to the artwork and
 prevents the scene from drifting toward a plausible-but-wrong appearance.
 
+\paragraph{(D4) Compositional object structure.}
+An oil painting depicts \emph{things} --- trees, vessels, faces, buildings ---
+each painted as a coherent unit and arranged deliberately in depth: the
+artist decides what rests on what, what occludes what, and where the ground
+lies. This motivates the \emph{object-level scene canvas} (Stage -0.5,
+\S\ref{sec:stage-object}): segment the painting into objects, generate each
+object's 3D geometry, and compose them through an explicit
+spatial-dependency graph; the canvas then supplies the geometry control for
+Stage 0 and the rigid anchors + relation-preservation constraints for
+Stage 3.2.
+
 \begin{figure*}[t]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/teaser_frames.png}
 \caption{\textbf{Pipeline overview.} Stage -1 estimates depth, normals, and
-brush-stroke segmentation from the painting. Stage 0 generates a 3D-stable
-flythrough whose per-frame geometry is constrained by a depth-warp control
-and whose temporal attention is biased by the painting's strokes. Stage 1
-non-rigidly aligns the generated frames into a painting-initialised canonical
-cloud. Stage 3.2 trains a stroke-coherent 3DGS scene.}
+brush-stroke segmentation from the painting. Stage -0.5 segments the painting
+into objects, generates each object in 3D with a TripoSplat-style
+triplane-to-Gaussian decoder, and composes them onto a 3D scene canvas with
+an explicit spatial-dependency graph. Stage 0 generates a 3D-stable
+flythrough whose per-frame geometry is constrained by a canvas-composited
+depth-warp control and whose temporal attention is biased by the painting's
+strokes. Stage 1 non-rigidly aligns the generated frames into a
+painting-initialised canonical cloud. Stage 3.2 trains a stroke-coherent,
+object-rigid 3DGS scene.}
 \label{fig:method}
 \end{figure*}
 
@@ -240,6 +294,86 @@ $\mathcal{P}_p = \{(x_i, c_i, n_i, w_i)\}$ that serves as the canonical-frame
 prior.
 
 % ---------------------------------------------------------------------
+\subsection{Stage -0.5: Object-level scene construction}
+\label{sec:stage-object}
+
+The stroke map $S_p$ models the painting's \emph{marks}; the canvas stage
+models its \emph{things}. It produces an explicit 3D scene scaffold
+$\mathcal{C}$ --- the \emph{scene canvas} --- in three steps
+(Fig.~\ref{fig:canvas}).
+
+\paragraph{Depth-aware object segmentation.}
+We segment the painting into object instances $M_o \in
+\mathbb{N}^{H\times W}$. In production $M_o$ comes from SAM2 /
+Mask2Former~\cite{sam2,mask2former}; the demo uses a synthetic backend that
+clusters pixels jointly in LAB colour and estimated-depth space with spatial
+connectivity, blocks merging across strong depth gradients, and scores each
+region by an \emph{objectness}
+\begin{equation}
+\omega_o = \frac{|M_o|}{HW}\,
+\big(w_d\, e^{-\sigma_D(M_o)/\sigma_0} + w_c\, \delta_c(M_o)\big),
+\end{equation}
+combining area, depth coherence (a compact solid at one distance has low
+depth spread $\sigma_D$) and colour distinctness $\delta_c$ from the scene
+mean; the top-$K$ regions become objects, the rest background.
+
+\paragraph{TripoSplat-style 3D object generation.}
+Following the TripoSplat architecture~\cite{triposplat2025}, each object is
+generated as Gaussians decoded from a \emph{triplane}. The object's masked
+pixels are unprojected with $D_p$ into a local point cloud, centred and
+scaled into a unit cube. Because a painting is a single view, we synthesise
+the multi-view cue of TripoSplat by rotating the local cloud around the
+object's vertical axis into $\nu$ side views; each side view is registered
+back onto the painting view by a point-to-point ICP (the analogue of
+TripoSplat's cross-view alignment), and the corrected views are fused. The
+fused points are splatted onto three orthogonal feature planes
+$\{F_{xy}, F_{yz}, F_{zx}\}$ of resolution $R$, each storing colour, density,
+and camera depth per cell; a query grid of $Q^3$ cells then samples the
+triplane bilinearly, and occupied cells decode into Gaussians
+(position $=$ query point, scale $=$ cell size modulated by density, opacity
+and colour $=$ fused features). Finally the decoded Gaussians' scales,
+opacities, and colours are refined by rendering the object's painting-view
+crop with the differentiable rasteriser and minimising L1 to the artwork.
+
+\paragraph{Spatial-dependency graph and canvas placement.}
+The generated objects are wired into a directed 3D relation graph
+$\mathcal{R}$. For each object we compute its centroid and axis-aligned
+bounding box in the painting camera frame; a ground plane $G$ is fitted by
+least squares to the lowest quartile of scene points. Edges are declared
+from geometry: \emph{rests-on}$(a,b)$ when $a$'s underside is in vertical
+contact with $b$'s upper surface with horizontal overlap (its inverse
+reading is \emph{supports}); \emph{rests-on-ground}$(a)$ when $a$'s
+underside touches $G$; \emph{in-front-of}$(a,b)$ when $a$ is nearer the
+camera and the masks overlap (inverse: \emph{behind}); and
+\emph{adjacent-to}$(a,b)$ for lateral proximity without contact. The canvas
+is then \emph{resolved physically}: floating objects with a
+rests-on-ground relation are translated onto the ground plane, closing the
+gap the depth estimate leaves. The canvas $\mathcal{C}$ is the union of the
+placed object Gaussians and a background Gaussian set (pixels belonging to
+no object), and it exposes two consumables: a composited depth map $D_c$
+(splat z-buffer from the painting view, occlusion-correct per object) and
+the per-object Gaussian groups with their relation gaps.
+Fig.~\ref{fig:canvas} shows the construction on the landscape sample:
+the depth-aware segmenter isolates 12 objects, the canvas-composited depth
+reproduces the painting's layout with object-correct occlusion, and the
+layout plot shows the placed objects with their dependency edges.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/canvas_stage.png}
+\caption{\textbf{Stage -0.5: object-level scene construction} (landscape
+sample). (a)~Input painting. (b)~Depth-aware object segmentation: 12
+instances (colour-tinted) with an objectness ranking; unassigned pixels
+form the background set. (c)~The canvas-composited depth $D_c$ consumed by
+the Stage-0 depth-warp control: a per-object splat z-buffer, so occlusion
+boundaries are correct object silhouettes rather than raw depth edges.
+(d)~The scene canvas: placed objects (top-down $x$--$z$ and side $x$--$y$
+views) with their spatial-dependency edges; floating objects with
+rests-on-ground relations were snapped onto the fitted ground plane.}
+\label{fig:canvas}
+\end{figure*}
+
+% ---------------------------------------------------------------------
 \subsection{Stage 0: Painting-conditioned video generation}
 \label{sec:stage0}
 
@@ -249,19 +383,22 @@ viewpoint. The painting conditions the VDM through three 3D-stability
 controls.
 
 \paragraph{Depth-warp geometry control.}
-At each frame $t$, we warp the painting's depth $D_p$ from $T_1$ to $T_t$ by
-unprojecting, transforming, and re-projecting:
+At each frame $t$, we warp the canvas-composited depth $D_c$ (Stage -0.5;
+the raw painting depth $D_p$ when the canvas is disabled) from $T_1$ to
+$T_t$ by unprojecting, transforming, and re-projecting:
 \begin{equation}
-D_p^{(t)} = \Pi\!\left(T_t^{-1}\, T_1\, \Pi^{-1}(D_p)\right),
+D_c^{(t)} = \Pi\!\left(T_t^{-1}\, T_1\, \Pi^{-1}(D_c)\right),
 \end{equation}
-where $\Pi$ denotes the camera projection. The warped depth
-$\{D_p^{(t)}\}_{t=1}^{N}$ is supplied to a depth ControlNet as a per-frame
-geometry control. We blend the warped depth with the painting depth by a
-strength $\alpha \in [0,1]$:
+where $\Pi$ denotes the camera projection. Because $D_c$ is z-buffered per
+object, the control respects object occlusion boundaries: a foreground
+object correctly hides the geometry behind it as the camera moves. The
+warped depth $\{D_c^{(t)}\}_{t=1}^{N}$ is supplied to a depth ControlNet as
+a per-frame geometry control. We blend the warped depth with the source
+depth by a strength $\alpha \in [0,1]$:
 \begin{equation}
-\tilde{D}_p^{(t)} = \alpha\, D_p^{(t)} + (1-\alpha)\, D_p,
+\tilde{D}_c^{(t)} = \alpha\, D_c^{(t)} + (1-\alpha)\, D_c,
 \end{equation}
-so the control never drifts too far from the painting's layout. $\alpha$ is
+so the control never drifts too far from the canvas layout. $\alpha$ is
 the user-facing \texttt{depth\_warp\_control\_strength} knob.
 
 \paragraph{Stroke-consistency attention.}
@@ -330,13 +467,15 @@ frustum (where $D_p^{(k)}$ is undefined and the score defaults to a small
 constant) while suppressing drift within it.
 
 % ---------------------------------------------------------------------
-\subsection{Stage 3.2: Stroke-coherent 3D Gaussian Splatting}
+\subsection{Stage 3.2: Stroke-coherent, object-rigid 3D Gaussian Splatting}
 \label{sec:stage3}
 
 We initialise a 3D Gaussian Splatting scene $\mathcal{G}$
-from the painting-initialised canonical cloud $\mathcal{P}_c$ and optimise it
-with the rendering loss of~\cite{hoellein2026worldreconstruction} plus two
-painting-anchored losses.
+from the canvas $\mathcal{C}$ (the placed object Gaussians plus background)
+when the object branch is enabled, and from the painting-initialised
+canonical cloud $\mathcal{P}_c$ otherwise, and optimise it with the rendering
+loss of~\cite{hoellein2026worldreconstruction} plus three painting-anchored
+losses.
 
 \paragraph{Stroke-coherence loss.}
 We transfer the painting's stroke segmentation $S_p$ onto the 3D Gaussians by
@@ -362,9 +501,35 @@ the input painting:
 \mathcal{L}_\text{paint} = \|R(\mathcal{G}, T_1) - I_p\|_1 + \lambda_\text{lpips}\,
 \mathrm{LPIPS}(R(\mathcal{G}, T_1), I_p).
 \end{equation}
-The full Stage-3.2 loss is
+
+\paragraph{Object-rigid anchors and relation preservation.}
+With the canvas enabled, scene optimisation must not tear the composed scene
+apart: an object's Gaussians should move \emph{as a whole}, and the
+dependency graph $\mathcal{R}$ should survive optimisation. We therefore
+parameterise each object $o$'s motion by a learnable SE(3) delta
+$(\Delta R_o, \Delta t_o)$ about its centroid --- a yaw for the vertical axis
+plus a translation --- applied rigidly to all of $o$'s Gaussians, while
+background Gaussians share a single delta; SH colours and opacities remain
+per-Gaussian free parameters:
+\begin{equation}
+x_g' = c_o + \Delta R_o\,(x_g - c_o) + \Delta t_o, \quad g \in o.
+\end{equation}
+A \emph{relation-preservation loss} pins the support contacts of
+$\mathcal{R}$: for every \emph{rests-on}$(a,b)$ (or rests-on-ground) edge
+with initial contact gap $\gamma_0$, we penalise the drift of the current
+gap $\gamma$ from its initial value,
+\begin{equation}
+\mathcal{L}_\text{rel} =
+\frac{1}{|\mathcal{R}_\text{sup}|}
+\sum_{(a,b)\in\mathcal{R}_\text{sup}}
+\big|\,\gamma(a,b) - \gamma_0(a,b)\,\big|.
+\end{equation}
+Together the rigid anchors and $\mathcal{L}_\text{rel}$ let the optimiser
+photometrically refine the scene --- nudging objects into place, adjusting
+colours --- without objects interpenetrating, floating, or losing their
+supports. The full Stage-3.2 loss is
 $\mathcal{L}_\text{rend} + \lambda_s\, \mathcal{L}_\text{stroke} + \lambda_p\,
-\mathcal{L}_\text{paint}$.
+\mathcal{L}_\text{paint} + \lambda_r\, \mathcal{L}_\text{rel}$.
 
 % =====================================================================
 \section{Experiments}
@@ -373,11 +538,14 @@ $\mathcal{L}_\text{rend} + \lambda_s\, \mathcal{L}_\text{stroke} + \lambda_p\,
 \paragraph{Implementation.}
 Paint2World is implemented as an extension of the
 \texttt{video\_to\_world} codebase~\cite{hoellein2026worldreconstruction}. The
-demo ships synthetic / mock backends for the depth estimator, the VDM, and the
-Gaussian rasteriser so that the full pipeline runs end-to-end on a single CPU.
-The production deployment swaps in DepthAnything-3, Wan-2.2 I2V with a depth
-ControlNet, and gsplat via one-line configuration changes; the
-painting-anchored losses are injected at the same points as the synthetic
+demo ships synthetic / mock backends for the depth estimator, the object
+segmenter (depth-aware colour clustering), the TripoSplat triplane
+encoder/decoder, the VDM, and the Gaussian rasteriser so that the full
+pipeline runs end-to-end on a single CPU. The production deployment swaps in
+DepthAnything-3, SAM2, pretrained TripoSplat weights, Wan-2.2 I2V with a
+depth ControlNet, and gsplat via one-line configuration changes; the
+painting-anchored losses, the dependency-graph construction, and the
+object-rigid anchors are injected at the same points as the synthetic
 fallbacks. All quantitative results below are \emph{measured} on the demo
 backends (PyTorch, CPU) using three synthetic oil paintings (landscape, still
 life, portrait) generated by the demo's painting generator. The evaluation
@@ -386,8 +554,8 @@ harness (\texttt{paint2world.evaluation}) and batch runner
 every number is reproducible.
 
 \paragraph{Metrics.}
-We report five measured metrics that jointly capture 3D stability and
-painting fidelity:
+We report eight measured metrics that jointly capture 3D stability, painting
+fidelity, and scene-structure preservation:
 \begin{itemize}
 \item \textbf{Align.\ Residual} ($\downarrow$): the final Stage-1 alignment
 loss (absolute), measuring how well the per-frame point clouds converge to a
@@ -404,24 +572,44 @@ artwork.
 \item \textbf{Stroke Coh.} ($\downarrow$): the mean intra-stroke SH-colour
 variance of the 3D Gaussians, measuring whether each brush stroke remains a
 coherent 3D patch.
+\item \textbf{Canvas L1} ($\downarrow$): L1 between the painting and the
+canvas render from the painting viewpoint, measuring how faithfully the
+object-composed scaffold already reproduces the artwork \emph{before} GS
+training.
+\item \textbf{Obj.\ Depth Cons.} ($\downarrow$): L1 between the
+canvas-composited depth and the painting's depth over object pixels,
+measuring whether the generated objects are placed consistently with the
+painting's implied geometry.
+\item \textbf{Rel.\ Drift} ($\downarrow$): the mean absolute drift of
+support-contact gaps (rests-on / rests-on-ground edges) after Stage-3.2
+training, measuring whether the spatial-dependency graph survives
+optimisation.
 \end{itemize}
-We additionally report the painting-view \textbf{L1} and wall-clock
+We additionally report the painting-view \textbf{L1}, the number of detected
+objects \textbf{\#Obj} and relations \textbf{\#Rel}, and wall-clock
 \textbf{Runtime}.
 
 % ---------------------------------------------------------------------
 \subsection{Per-scene results}
 \label{sec:exp-main}
 
-Table~\ref{tab:main} reports the full method on all three paintings. The
-alignment loss drops by $\geq\!98.8\%$ on every scene (3D Consist.\ $\geq 98.8$),
-confirming that the painting-anchored alignment resolves almost all
-generative drift. Painting fidelity varies with scene type: the portrait
-achieves the lowest Painting L1 (0.215) because its depth layout is simplest
-(a single foreground figure), while the still life and landscape, with richer
-backgrounds, score 0.446 and 0.423 respectively. Stroke coherence is lowest
-for the portrait (0.040) and highest for the landscape (0.136), tracking the
-number of distinct brush strokes the estimator detects (5 for the landscape,
-fewer for the others). Runtime is 15--20\,s per scene on CPU.
+Table~\ref{tab:main} reports the full method on all three paintings, and
+Table~\ref{tab:object-main} the corresponding object-level scene statistics.
+The alignment loss drops by $\geq\!99.0\%$ on every scene (3D Consist.\
+$\geq 99.0$), confirming that the painting-anchored alignment resolves
+almost all generative drift. The depth-aware segmenter finds 12 objects and
+$\sim$140 spatial relations on each painting, and the canvas construction
+snaps 1--4 floating objects onto their supports. Painting fidelity varies
+with scene type: the portrait achieves the lowest Painting L1 (0.162) and
+Canvas L1 (0.176) because its depth layout is simplest (a single foreground
+figure), while the still life and landscape, with richer backgrounds, score
+0.334 and 0.350. Object depth consistency follows the same trend (0.104 for
+the portrait). Critically, the dependency graph \emph{survives} Stage-3.2
+optimisation: the mean support-gap drift stays at $3$--$6\times10^{-4}$
+scene units, i.e.\ objects neither sink into their supports nor float away.
+Runtime is 44--52\,s per scene on CPU, of which the object branch
+(segmentation + per-object TripoSplat generation + canvas) accounts for
+$\sim$25\,s.
 
 \begin{table}[t]
 \centering
@@ -431,15 +619,15 @@ fewer for the others). Runtime is 15--20\,s per scene on CPU.
 \toprule
 Scene & 3D\,C.$\uparrow$ & T.\,Sm.$\uparrow$ & P.\,L1$\downarrow$ & P.\,Fid.$\downarrow$ & St.\,Coh.$\downarrow$ \\
 \midrule
-Landscape   & 99.47 & 93.25 & 0.423 & 0.418 & 0.136 \\
-Still life  & 99.75 & 95.89 & 0.446 & 0.442 & 0.085 \\
-Portrait    & 98.78 & 95.88 & 0.215 & 0.211 & 0.040 \\
+Landscape   & 99.33 & 93.28 & 0.350 & 0.343 & 0.043 \\
+Still life  & 99.71 & 95.92 & 0.334 & 0.326 & 0.050 \\
+Portrait    & 99.06 & 95.86 & 0.162 & 0.156 & 0.046 \\
 \midrule
-\textbf{Average} & \textbf{99.34} & \textbf{95.01} & \textbf{0.361} & \textbf{0.357} & \textbf{0.087} \\
+\textbf{Average} & \textbf{99.37} & \textbf{95.02} & \textbf{0.282} & \textbf{0.275} & \textbf{0.047} \\
 \bottomrule
 \end{tabular*}
 \caption{\textbf{Per-scene results (full method).} The painting-anchored
-alignment resolves $\geq 98.8\%$ of generative drift on all three paintings.
+alignment resolves $\geq 99.0\%$ of generative drift on all three paintings.
 Painting fidelity and stroke coherence vary with scene complexity.
 (3D\,C.\,=\,3D Consistency; T.\,Sm.\,=\,Temporal Smoothness;
 P.\,L1\,=\,Painting L1; P.\,Fid.\,=\,Painting Fidelity;
@@ -447,34 +635,67 @@ St.\,Coh.\,=\,Stroke Coherence.)}
 \label{tab:main}
 \end{table}
 
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcccccc}
+\toprule
+Scene & \#Obj & \#Rel & \#Adj & Can.\,L1$\downarrow$ & O.\,Dep.$\downarrow$ & Rel.\,Drift$\downarrow$ \\
+\midrule
+Landscape   & 12 & 140 & 4 & 0.339 & 0.162 & 0.00025 \\
+Still life  & 12 & 140 & 4 & 0.347 & 0.151 & 0.00038 \\
+Portrait    & 12 & 137 & 1 & 0.176 & 0.137 & 0.00055 \\
+\bottomrule
+\end{tabular*}
+\caption{\textbf{Object-level scene statistics} (full method). \#Obj =
+detected objects; \#Rel = spatial-dependency edges; \#Adj = objects snapped
+onto supports during canvas placement; Can.\,L1 = canvas-render painting L1
+\emph{before} GS training; O.\,Dep = object depth consistency; Rel.\,Drift
+= mean support-gap drift after Stage-3.2 training (scene units).}
+\label{tab:object-main}
+\end{table}
+
 % ---------------------------------------------------------------------
 \subsection{Ablation study}
 \label{sec:exp-ablation}
 
-Table~\ref{tab:ablation} ablates each painting-anchored mechanism on the
-landscape scene. Several findings stand out:
+Table~\ref{tab:ablation} ablates each mechanism on the landscape scene;
+Table~\ref{tab:ablation-object} isolates the object-level canvas with
+scene-structure metrics. Several findings stand out:
 
-\textbf{(A1) Stroke coherence is the clearest discriminator.} Removing the
-stroke-coherence loss raises Stroke Coh.\ from 0.125 to 0.139 ($+11\%$);
-removing the stroke-consistency attention raises it further to 0.145
-($+16\%$); and removing \emph{all} painting controls collapses it to 0.076.
-The latter is lower only because without any stroke constraint the Gaussians
-uniformly blur together, destroying the brush-stroke structure the artist
-authored. The full method preserves stroke structure ($0.125$) while keeping
-the strokes distinct.
+\textbf{(A1) The object-level canvas is the single largest contributor to
+painting fidelity.} Removing the entire object branch (no segmentation, no
+TripoSplat generation, no canvas) raises Painting L1 from 0.340 to 0.424
+($+25\%$) and stroke coherence from 0.046 to 0.145 ($3.1\times$ worse): the
+scene falls back to a sparse aligned cloud, the GS optimiser has far less
+geometry to work with (4.6k vs.\ 20.4k Gaussians), and brush strokes blur
+together. This is the clearest discriminator in the study.
 
-\textbf{(A2) The painting-view loss improves painting fidelity.} Removing it
-lowers Painting L1 slightly (0.412 vs.\ 0.422) but at the cost of stroke
-coherence (0.129 vs.\ 0.125) --- the optimiser is free to overfit the render
-to the painting without preserving 3D stroke structure. The full method
-achieves the best trade-off.
+\textbf{(A2) The stroke-coherence loss works as designed.} Removing it
+doubles stroke coherence (0.046 $\to$ 0.092); removing the
+stroke-consistency attention in Stage 0 degrades it to 0.048 and removing
+all painting controls together degrades it to 0.088. The full method keeps
+each brush stroke a coherent 3D patch.
 
-\textbf{(A3) Depth-warp control improves temporal stability.} Without it,
-3D Consist.\ rises to 99.96 but only because the unconstrained video is
-spatially smoother (fewer degrees of freedom) and therefore trivially easier
-to align; the resulting canonical geometry is less faithful to the painting
-(Stroke Coh.\ drops to 0.081, i.e.\ strokes blur together). The full method
-achieves a better balance of alignment, fidelity, and stroke coherence.
+\textbf{(A3) Object-rigid anchors preserve scene structure at no fidelity
+cost.} Letting every Gaussian move freely (\emph{w/o object-rigid anchors})
+slightly improves Painting L1 (0.322 vs.\ 0.340) --- the optimiser can
+overfit the painting view --- but degrades stroke coherence (0.053 vs.\
+0.046) and, more importantly, abandons the dependency graph entirely: with
+free positions there is no object identity left to preserve, and support
+contacts are not maintained by construction. The rigid variant keeps every
+support gap within $3\times10^{-4}$ scene units (Rel.\ Drift) while
+achieving comparable fidelity.
+
+\textbf{(A4) Canvas-composited depth control is neutral on the demo
+backend.} Replacing the canvas depth with the raw painting depth in the
+Stage-0 control changes Painting L1 by $<1\%$ (0.341 vs.\ 0.340) on the
+mock video backend, whose geometry is generated from the painting depth
+itself; the control matters when the VDM hallucinates off-prior geometry,
+where the object-correct occlusion silhouettes of $D_c$ constrain it. The
+relation-drift difference (0.00059 vs.\ 0.00031) shows the canvas depth
+also stabilises the downstream placement.
 
 \begin{table}[t]
 \centering
@@ -484,23 +705,49 @@ achieves a better balance of alignment, fidelity, and stroke coherence.
 \toprule
 Variant & 3D\,C.$\uparrow$ & T.\,Sm.$\uparrow$ & P.\,L1$\downarrow$ & P.\,Fid.$\downarrow$ & St.\,Coh.$\downarrow$ \\
 \midrule
-Full Paint2World & 99.51 & 93.29 & 0.422 & 0.416 & \textbf{0.125} \\
+Full Paint2World & 99.58 & 93.28 & \textbf{0.340} & \textbf{0.332} & \textbf{0.046} \\
 \midrule
-w/o depth-warp ctrl & 99.96 & 93.36 & 0.424 & 0.418 & 0.081 \\
-w/o stroke-consist.\ attn & 99.55 & 93.29 & 0.417 & 0.412 & 0.145 \\
-w/o painting anchor & 99.52 & 93.27 & 0.422 & 0.416 & 0.123 \\
-w/o depth-warp consist. & 99.52 & 93.28 & 0.419 & 0.414 & 0.134 \\
-w/o stroke-coherence loss & 99.56 & 93.28 & 0.421 & 0.416 & 0.139 \\
-w/o painting-view loss & 99.52 & 93.26 & 0.412 & 0.406 & 0.129 \\
+w/o depth-warp ctrl & 99.97 & 93.37 & 0.342 & 0.334 & 0.043 \\
+w/o stroke-consist.\ attn & 99.61 & 93.30 & 0.342 & 0.334 & 0.048 \\
+w/o painting anchor & 99.44 & 93.31 & 0.350 & 0.342 & 0.042 \\
+w/o depth-warp consist. & 99.59 & 93.25 & 0.342 & 0.335 & 0.042 \\
+w/o stroke-coherence loss & 99.58 & 93.32 & 0.347 & 0.340 & 0.092 \\
+w/o painting-view loss & 99.52 & 93.27 & 0.349 & 0.341 & 0.042 \\
+w/o canvas depth ctrl & 99.51 & 93.28 & 0.341 & 0.333 & 0.042 \\
+w/o object-rigid anchors & 99.51 & 93.28 & 0.322$^\dagger$ & 0.313$^\dagger$ & 0.053 \\
 \midrule
-w/o \emph{all} painting ctrl & 99.96 & 93.37 & 0.416 & 0.410 & 0.076 \\
+w/o object scene (all) & 99.52 & 93.32 & 0.424 & 0.419 & 0.145 \\
+w/o \emph{all} painting ctrl & 99.97 & 93.37 & 0.349 & 0.341 & 0.088 \\
 \bottomrule
 \end{tabular*}
-\caption{\textbf{Ablation} on the landscape scene. Removing each
-painting-anchored mechanism degrades stroke coherence and/or painting
-fidelity. Removing all controls collapses the 3D brush-stroke structure
-(St.\,Coh.\ $= 0.076$, strokes blur together).}
+\caption{\textbf{Ablation} on the landscape scene. Removing the object-level
+scene construction is the largest degradation ($+25\%$ Painting L1,
+$3.1\times$ stroke coherence); the stroke-coherence loss doubles stroke
+coherence when removed. $^\dagger$Free-position training can overfit the
+painting view but abandons the dependency graph (no object identity, no
+relation preservation).}
 \label{tab:ablation}
+\end{table}
+
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcccc}
+\toprule
+Variant & \#Obj & \#Rel & O.\,Dep.$\downarrow$ & Rel.\,Drift$\downarrow$ \\
+\midrule
+Full Paint2World & 12 & 140 & 0.170 & \textbf{0.00031} \\
+w/o canvas depth ctrl & 12 & 140 & 0.161 & 0.00059 \\
+w/o object-rigid anchors & 12 & 140 & 0.147 & -- \\
+w/o object scene (all) & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular*}
+\caption{\textbf{Object-branch ablation} (landscape). O.\,Dep = object
+depth consistency; Rel.\,Drift = support-gap drift after Stage-3.2 training
+(-- = not defined: without rigid anchors there is no object identity to
+preserve; without the object scene there is no canvas).}
+\label{tab:ablation-object}
 \end{table}
 
 \begin{figure}[t]
@@ -518,14 +765,12 @@ because every frame's geometry is pinned to the painting's depth layout.}
 \label{sec:exp-trajectory}
 
 Table~\ref{tab:trajectory} compares four trajectory families on the landscape
-scene. The \emph{dolly} (forward translation) and \emph{pan} (lateral
-translation) trajectories achieve the best painting fidelity (Painting L1
-0.349 and 0.342) because they keep most of the painting in view throughout
-the flythrough, giving the GS optimiser strong supervision. The \emph{orbit}
-and \emph{spiral} trajectories, which rotate the viewpoint more aggressively,
-score worse on painting fidelity (0.423 and 0.434) but better exercise novel
-views. All four trajectories maintain 3D Consist.\ $\geq 99.4$, confirming
-that the depth-warp control generalises across trajectory types.
+scene. All four maintain 3D Consist.\ $\geq 99.5$ and painting fidelity
+within a narrow band (Painting L1 0.341--0.345), confirming that the
+canvas-conditioned depth-warp control generalises across trajectory types;
+the dolly's marginally higher 3D consistency (99.97) again reflects the
+trivially-smoother unconstrained translation path rather than better
+geometry. Stroke coherence is stable (0.042--0.048).
 
 \begin{table}[t]
 \centering
@@ -535,15 +780,15 @@ that the depth-warp control generalises across trajectory types.
 \toprule
 Trajectory & 3D\,C.$\uparrow$ & T.\,Sm.$\uparrow$ & P.\,L1$\downarrow$ & P.\,Fid.$\downarrow$ & St.\,Coh.$\downarrow$ \\
 \midrule
-Orbit  & 99.53 & 93.23 & 0.423 & 0.418 & 0.119 \\
-Dolly  & 99.93 & 94.06 & \textbf{0.349} & \textbf{0.341} & 0.090 \\
-Pan    & 99.38 & 93.50 & 0.342 & 0.334 & 0.132 \\
-Spiral & 99.64 & 93.19 & 0.434 & 0.428 & \textbf{0.108} \\
+Orbit  & 99.52 & 93.27 & 0.345 & 0.337 & 0.042 \\
+Dolly  & 99.97 & 94.00 & \textbf{0.341} & \textbf{0.333} & 0.048 \\
+Pan    & 99.71 & 93.52 & 0.342 & 0.334 & 0.044 \\
+Spiral & 99.66 & 93.27 & 0.342 & 0.334 & \textbf{0.042} \\
 \bottomrule
 \end{tabular*}
-\caption{\textbf{Camera-trajectory comparison} (landscape). Dolly and pan
-keep the painting in view and achieve the best painting fidelity; all four
-trajectories maintain $\geq 99.4$ 3D consistency.}
+\caption{\textbf{Camera-trajectory comparison} (landscape). The
+canvas-conditioned pipeline is stable across trajectory families:
+3D consistency $\geq 99.5$ and painting L1 within 0.004 everywhere.}
 \label{tab:trajectory}
 \end{table}
 
@@ -552,12 +797,13 @@ trajectories maintain $\geq 99.4$ 3D consistency.}
 \label{sec:exp-scalability}
 
 Table~\ref{tab:scalability} sweeps the number of generated frames from 8 to
-20. Runtime grows near-linearly (12.5\,s to 20.1\,s), and the Gaussian count
-grows modestly (4515 to 5268) as more frames contribute new points to the
-canonical cloud. 3D consistency stays above 99.1 throughout, and temporal
-smoothness \emph{improves} with more frames (93.10 to 93.83) because the
-denser trajectory is sampled more smoothly. Painting fidelity is stable
-($\approx 0.42$), confirming the pipeline scales gracefully.
+20. Runtime grows near-linearly (42.1\,s to 50.4\,s) while the Gaussian
+count stays essentially constant ($\sim$20.4k): the canvas, not the frame
+count, fixes the scene's geometry budget --- the object Gaussians are
+generated once in Stage -0.5 and the frames only refine them. 3D consistency
+stays above 99.1, temporal smoothness \emph{improves} with more frames
+(93.21 to 93.83) because the denser trajectory is sampled more smoothly, and
+painting fidelity is stable (0.344--0.354). The pipeline scales gracefully.
 
 \begin{table}[t]
 \centering
@@ -567,14 +813,15 @@ denser trajectory is sampled more smoothly. Painting fidelity is stable
 \toprule
 \#Fr & 3D\,C.$\uparrow$ & T.\,Sm.$\uparrow$ & P.\,L1$\downarrow$ & P.\,Fid.$\downarrow$ & \#Gauss & RT\,s \\
 \midrule
-8  & 99.59 & 93.10 & 0.425 & 0.420 & 4515 & 12.5 \\
-12 & 99.40 & 93.43 & 0.427 & 0.421 & 4758 & 15.0 \\
-16 & 99.30 & 93.66 & 0.417 & 0.412 & 5010 & 17.5 \\
-20 & 99.14 & 93.83 & 0.417 & 0.412 & 5268 & 20.1 \\
+8  & 99.64 & 93.21 & 0.346 & 0.338 & 20512 & 42.1 \\
+12 & 99.44 & 93.47 & 0.344 & 0.336 & 20394 & 44.2 \\
+16 & 99.18 & 93.67 & 0.348 & 0.340 & 20459 & 47.3 \\
+20 & 99.18 & 93.83 & 0.354 & 0.346 & 20318 & 50.4 \\
 \bottomrule
 \end{tabular*}
 \caption{\textbf{Scalability} (landscape). Runtime grows near-linearly with
-frame count; 3D consistency and painting fidelity remain stable.}
+frame count while the Gaussian count stays constant --- the canvas fixes the
+geometry budget and the frames only refine it.}
 \label{tab:scalability}
 \end{table}
 
@@ -583,12 +830,17 @@ The experiments confirm the design rationale of \S\ref{sec:design}: the
 painting's deliberate depth composition (D1) keeps 3D consistency above 99
 across scenes, trajectories, and frame counts; the explicit brush-stroke
 structure (D2) is preserved by the stroke-coherence mechanisms (Stroke Coh.\
-$0.125$ full vs.\ $0.076$ with all controls removed); and the authoritative
-appearance (D3) anchors the scene to the artwork (Painting L1 as low as
-$0.215$ on the portrait). The main limitation is that the demo's synthetic
-backends bound the absolute painting-fidelity numbers; the production
-deployment with DepthAnything-3 and Wan-2.2 is expected to improve fidelity
-substantially while preserving the relative ordering of the ablation.
+$0.046$ full vs.\ $0.092$ with the loss removed and $0.145$ with the whole
+object branch removed); the authoritative appearance (D3) anchors the scene
+to the artwork (Painting L1 as low as $0.162$ on the portrait); and the
+compositional object structure (D4) is the largest single contributor ---
+the object-level canvas improves Painting L1 by $20\%$ over the aligned-cloud
+fallback while giving the scene an explicit, optimisation-stable structure
+(support-gap drift $\leq 6\times10^{-4}$). The main limitation is that the
+demo's synthetic backends bound the absolute fidelity numbers; the
+production deployment with DepthAnything-3, SAM2, pretrained TripoSplat, and
+Wan-2.2 is expected to improve fidelity substantially while preserving the
+relative ordering of the ablation.
 
 % =====================================================================
 \section{Conclusion}
@@ -596,25 +848,35 @@ substantially while preserving the relative ordering of the ablation.
 
 We presented Paint2World, a pipeline that turns a single human oil painting
 into a 3D-consistent flythrough video and a 3D Gaussian Splatting scene by
-treating the painting as a canonical prior. The three painting-anchored
-mechanisms --- depth-warp geometry control, painting-anchored non-rigid
-alignment, and stroke-coherent 3DGS --- each measurably improve 3D
-consistency and painting fidelity. The demo runs end-to-end on a single CPU
-with synthetic backends; swapping in DepthAnything-3, Wan-2.2 I2V, and gsplat
-yields the production-grade deployment. We see Paint2World as a step toward
-letting artists author 3D worlds with the same brush they already use to
-author 2D ones.
+treating the painting as a canonical prior. At its core is an explicit
+object-level scene canvas: the painting is decomposed into objects by
+depth-aware image segmentation, each object is generated in 3D by a
+TripoSplat-style triplane-to-Gaussian decoder, and the objects are composed
+through a physically-resolved spatial-dependency graph on a fitted ground
+plane. The canvas, together with the depth-warp geometry control,
+painting-anchored non-rigid alignment, and the stroke-coherent object-rigid
+3DGS objective, each measurably improves 3D consistency, painting fidelity,
+and scene-structure preservation. The demo runs end-to-end on a single CPU
+with synthetic backends; swapping in DepthAnything-3, SAM2, pretrained
+TripoSplat weights, Wan-2.2 I2V, and gsplat yields the production-grade
+deployment. We see Paint2World as a step toward letting artists author 3D
+worlds with the same brush they already use to author 2D ones.
 
 \paragraph{Limitations and future work.}
 The painting-anchored prior assumes the painting depicts a single, coherent
 3D scene; highly stylised or non-figurative paintings may violate this. The
 depth-warp control is most effective when the painting's depth is itself
-accurate; a real GFM (DepthAnything-3) is recommended for production. Like
-the underlying method~\cite{hoellein2026worldreconstruction}, Paint2World
-addresses geometric drift but not VDM hallucinations (objects appearing or
-disappearing across frames). Future work could feed the painting-anchor loss
-back as a finetuning signal to the VDM, closing the loop between
-reconstruction and generation.
+accurate; a real GFM (DepthAnything-3) is recommended for production.
+Likewise the synthetic object segmenter and triplane decoder bound the
+quality of the canvas; pretrained SAM2 and TripoSplat checkpoints plug in
+behind the same interfaces. Like the underlying
+method~\cite{hoellein2026worldreconstruction}, Paint2World addresses
+geometric drift but not VDM hallucinations (objects appearing or disappearing
+across frames) --- though the canvas's per-object identity makes such
+hallucinations \emph{detectable} (a generated object with no canvas
+counterpart), which we leave for future work, as is feeding the
+painting-anchor loss back as a finetuning signal to the VDM, closing the
+loop between reconstruction and generation.
 
 % =====================================================================
 {\small

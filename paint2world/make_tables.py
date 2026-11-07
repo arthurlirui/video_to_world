@@ -55,6 +55,21 @@ def main():
     def rt(d):
         return d.get("runtime_s", 0.0)
 
+    def n_obj(d):
+        return d.get("num_objects", 0) or 0
+
+    def n_rel(d):
+        return d.get("num_relations", 0) or 0
+
+    def canvas_l1(d):
+        return d.get("canvas_painting_l1")
+
+    def obj_depth(d):
+        return d.get("object_depth_consistency")
+
+    def rel_drift(d):
+        return d.get("relation_gap_drift")
+
     # ---- Table 1: Main (per scene + average) ----
     print("\n=== TABLE: Main comparison (per scene) ===")
     main = _load(os.path.join(root, "main.json"))
@@ -96,6 +111,22 @@ def main():
             ng = r.get("num_gaussians", 0)
             print(f"{r['num_frames']:>8} {c:>9.2f} {p:>10.2f} {_fmt(l1v):>8} {_fmt(pf):>8} {ng:>7} {t:>7.1f}")
 
+    # ---- Table 5: Object-level scene construction ----
+    print("\n=== TABLE: Object scene (main runs) ===")
+    if main:
+        print(f"{'Scene':<28} {'#Obj':>5} {'#Rel':>5} {'#Adj':>5} {'CanvasL1':>9} {'ObjDepth':>9} {'RelDrift':>9}")
+        for r in main:
+            adj = r.get("placement_adjusted", 0) or 0
+            print(f"{r['scene']:<28} {n_obj(r):>5} {n_rel(r):>5} {adj:>5} "
+                  f"{_fmt(canvas_l1(r)):>9} {_fmt(obj_depth(r)):>9} {_fmt(rel_drift(r), 5):>9}")
+
+    print("\n=== TABLE: Object-branch ablation ===")
+    if abl:
+        print(f"{'Variant':<30} {'#Obj':>5} {'#Rel':>5} {'PaintL1':>8} {'ObjDepth':>9} {'RelDrift':>9}")
+        for r in abl:
+            print(f"{r['variant']:<30} {n_obj(r):>5} {n_rel(r):>5} {_fmt(l1(r)):>8} "
+                  f"{_fmt(obj_depth(r)):>9} {_fmt(rel_drift(r), 5):>9}")
+
     # ---- LaTeX row output ----
     print("\n=== LATEX ROWS (main, averaged) ===")
     if main:
@@ -128,6 +159,21 @@ def main():
             nf = r["num_frames"]
             c = consistency(r); p = photo(r); l1v = l1(r); pf = paint_fid(r); ng = r.get("num_gaussians",0); t = rt(r)
             print(f"{nf} & {c:.2f} & {p:.2f} & {l1v:.3f} & {pf:.3f} & {ng} & {t:.1f} \\\\")
+
+    print("\n=== LATEX ROWS (object scene, main) ===")
+    if main:
+        for r in main:
+            sn = r["scene"].replace("_", "\\_")
+            adj = r.get("placement_adjusted", 0) or 0
+            print(f"{sn} & {n_obj(r)} & {n_rel(r)} & {adj} & "
+                  f"{_fmt(canvas_l1(r))} & {_fmt(obj_depth(r))} & {_fmt(rel_drift(r), 5)} \\\\")
+
+    print("\n=== LATEX ROWS (ablation, object columns) ===")
+    if abl:
+        for r in abl:
+            v = r["variant"].replace("_", "\\_")
+            print(f"{v} & {n_obj(r)} & {n_rel(r)} & {_fmt(l1(r))} & "
+                  f"{_fmt(obj_depth(r))} & {_fmt(rel_drift(r), 5)} \\\\")
 
 
 if __name__ == "__main__":

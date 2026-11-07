@@ -113,8 +113,12 @@ def run_evaluation(
     enable_depth_warp_consistency: bool = True,
     enable_stroke_coherence: bool = True,
     enable_painting_view: bool = True,
+    enable_object_scene: bool = True,
+    enable_canvas_depth: bool = True,
+    enable_object_rigid: bool = True,
     stage1_iters: int = 50,
     stage3_iters: int = 200,
+    triposplat_refine_iters: int = 12,
     device: Optional[torch.device] = None,
 ) -> dict:
     """Run Paint2World with the given toggles and return measured metrics."""
@@ -125,6 +129,7 @@ def run_evaluation(
     cfg = Paint2WorldConfig(out_root=out_root)
     cfg.painting.painting_path = painting_path
     cfg.painting.out_dir = os.path.join(out_root, "stage_minus_1")
+    cfg.triposplat.refinement_iters = triposplat_refine_iters
     cfg.video.num_frames = num_frames
     cfg.video.out_dir = os.path.join(out_root, "stage_0")
     cfg.video.trajectory_type = trajectory
@@ -136,6 +141,9 @@ def run_evaluation(
     cfg.alignment.depth_warp_consistency_weight = 0.40 if enable_depth_warp_consistency else 0.0
     cfg.gs.enable_stroke_coherence = enable_stroke_coherence
     cfg.gs.painting_view_loss_weight = 0.30 if enable_painting_view else 0.0
+    cfg.run_stage_object = enable_object_scene
+    cfg.canvas.enable_canvas_depth_control = enable_canvas_depth
+    cfg.canvas.enable_object_rigid_gs = enable_object_rigid
 
     # --- Stage -1 ---
     pa = painting_analysis.analyze_painting(cfg.painting)
@@ -143,8 +151,59 @@ def run_evaluation(
     painting_depth_t = torch.from_numpy(pa["depth"]).float().to(device)
     painting_strokes_t = torch.from_numpy(pa["strokes"]).long().to(device)
 
+    # --- Stage -0.5: object segmentation -> TripoSplat -> scene canvas ---
+    canvas_result = None
+    num_objects = 0
+    num_relations = 0
+    placement_adjusted = 0
+    canvas_painting_l1 = None
+    object_depth_consistency = None
+    if enable_object_scene:
+        from . import object_segmentation, triposplat as triposplat_mod, scene_canvas as scene_canvas_mod
+
+        obj_root = os.path.join(out_root, "stage_object")
+        cfg.objects.out_dir = os.path.join(obj_root, "objects")
+        seg = object_segmentation.segment_objects(
+            cfg.objects, pa["image"], pa["depth"], strokes=pa["strokes"]
+        )
+        num_objects = seg["num_objects"]
+        ts = triposplat_mod.generate_objects(
+            cfg.triposplat, pa["image"], pa["depth"], seg,
+            out_dir=os.path.join(obj_root, "triposplat"),
+        )
+        probe_traj = video_generation.make_camera_trajectory(
+            num_frames=num_frames, trajectory_type=trajectory,
+            angle_deg=angle_deg, baseline=baseline, device=device,
+        )
+        canvas_result = scene_canvas_mod.build_scene_canvas(
+            cfg.canvas, pa["image"], pa["depth"], seg, ts,
+            painting_c2w=probe_traj[0], out_dir=os.path.join(obj_root, "canvas"),
+            strokes=pa["strokes"],
+        )
+        num_relations = canvas_result["num_relations"]
+        placement_adjusted = canvas_result["placement"]["adjusted"]
+        canvas = canvas_result["canvas"]
+        H, W = pa["image"].shape[:2]
+        # Canvas painting-view fidelity (before GS training).
+        canvas_render = canvas.render(probe_traj[0], H, W).clamp(0, 1)
+        canvas_painting_l1 = (canvas_render - painting_rgb_t).abs().mean().item()
+        # Canvas depth vs painting depth on object pixels (placement consistency).
+        obj_mask = torch.from_numpy(seg["labels"] > 0).to(device)
+        if obj_mask.any():
+            cd = canvas.canvas_depth(H, W).to(device)
+            object_depth_consistency = float(
+                (cd - painting_depth_t).abs()[obj_mask].mean().item()
+            )
+
     # --- Stage 0 ---
-    vg = video_generation.generate_video(cfg.video, painting_rgb_t, painting_depth_t, painting_strokes_t)
+    canvas_depth_ctrl = None
+    if canvas_result is not None and enable_canvas_depth:
+        H, W = pa["image"].shape[:2]
+        canvas_depth_ctrl = canvas_result["canvas"].canvas_depth(H, W).to(device)
+    vg = video_generation.generate_video(
+        cfg.video, painting_rgb_t, painting_depth_t, painting_strokes_t,
+        depth_control_override=canvas_depth_ctrl,
+    )
     frames = vg["frames"]
     trajectory_mats = vg["trajectory"]
     temporal_smoothness = _temporal_smoothness(frames)
@@ -204,18 +263,54 @@ def run_evaluation(
     gs_sub = max(1, N // 12)
     gs_frames = frames[::gs_sub]
     gs_c2w = [trajectory_mats[i] for i in range(0, N, gs_sub)]
-    gs = stroke_coherent_gs.train_stroke_coherent_gs(
-        cfg.gs,
-        canonical_pts=align_result["canonical_pts"].to(device),
-        canonical_cols=align_result["canonical_cols"].to(device),
-        canonical_strokes=pa["strokes"],
-        frame_images=gs_frames,
-        frame_c2w_list=gs_c2w,
-        painting_rgb=painting_rgb_t,
-        painting_c2w=painting_c2w,
-        out_dir=gs_out_dir,
-        num_iters=stage3_iters,
-    )
+    relation_gap_drift = None
+    if canvas_result is not None:
+        # Canvas-anchored GS training (object-rigid or free-position).
+        # Stroke labels were assigned to the canvas at build time.
+        from . import scene_canvas as scene_canvas_mod
+
+        canvas = canvas_result["canvas"]
+        if enable_object_rigid:
+            gs = scene_canvas_mod.train_canvas_anchored_gs(
+                canvas, cfg.canvas, cfg.gs,
+                frame_images=gs_frames,
+                frame_c2w_list=gs_c2w,
+                painting_rgb=painting_rgb_t,
+                painting_c2w=painting_c2w,
+                out_dir=gs_out_dir,
+                num_iters=stage3_iters,
+            )
+            relation_gap_drift = gs["relation_gap_drift"]
+        else:
+            g_cam = canvas.canvas_gaussians_camera()
+            gw = canvas.world_gaussians()
+            gw["stroke_label"] = g_cam.get(
+                "stroke_label",
+                torch.zeros(gw["position"].shape[0], dtype=torch.long),
+            )
+            gs = stroke_coherent_gs.train_stroke_coherent_gs_fallback(
+                gaussians=gw,
+                frame_images=gs_frames,
+                frame_c2w_list=gs_c2w,
+                painting_rgb=painting_rgb_t,
+                painting_c2w=painting_c2w,
+                cfg=cfg.gs,
+                num_iters=stage3_iters,
+            )
+            gs["object_label"] = g_cam["object_label"]
+    else:
+        gs = stroke_coherent_gs.train_stroke_coherent_gs(
+            cfg.gs,
+            canonical_pts=align_result["canonical_pts"].to(device),
+            canonical_cols=align_result["canonical_cols"].to(device),
+            canonical_strokes=pa["strokes"],
+            frame_images=gs_frames,
+            frame_c2w_list=gs_c2w,
+            painting_rgb=painting_rgb_t,
+            painting_c2w=painting_c2w,
+            out_dir=gs_out_dir,
+            num_iters=stage3_iters,
+        )
 
     # --- Measure painting-view fidelity ---
     from .stroke_coherent_gs import rasterise_gaussians
@@ -243,8 +338,17 @@ def run_evaluation(
             "enable_depth_warp_consistency": enable_depth_warp_consistency,
             "enable_stroke_coherence": enable_stroke_coherence,
             "enable_painting_view": enable_painting_view,
+            "enable_object_scene": enable_object_scene,
+            "enable_canvas_depth": enable_canvas_depth,
+            "enable_object_rigid": enable_object_rigid,
         },
         "num_strokes": int(pa["num_strokes"]),
+        "num_objects": int(num_objects),
+        "num_relations": int(num_relations),
+        "placement_adjusted": int(placement_adjusted),
+        "canvas_painting_l1": canvas_painting_l1,
+        "object_depth_consistency": object_depth_consistency,
+        "relation_gap_drift": relation_gap_drift,
         "num_gaussians": int(gs["position"].shape[0]),
         "align_loss_initial": float(align_loss_initial),
         "align_loss_final": float(align_loss_final),

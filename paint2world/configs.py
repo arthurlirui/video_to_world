@@ -113,6 +113,124 @@ class VideoGenerationConfig:
 
 
 @dataclass
+class ObjectSegmentationConfig:
+    """Stage -0.5a: object-level segmentation of the painting.
+
+    Complements the brush-stroke segmentation (which models *marks*) with an
+    object-level decomposition (which models *things*: trees, vessels, faces,
+    fruit, buildings). Object masks are the unit of TripoSplat-based 3D object
+    generation and of the spatial-dependency graph.
+    """
+
+    backend: Literal["sam2", "mask2former", "synthetic"] = "synthetic"
+    """Object segmentation backend. ``synthetic`` clusters jointly in LAB colour
+    + estimated-depth space with spatial connectivity and needs no network
+    weights. Swap to SAM2 / Mask2Former when checkpoints are available; the
+    interface (an instance-label map) is identical."""
+
+    min_object_area: int = 400
+    """Minimum object mask area in pixels (rejects spurious fragments)."""
+
+    max_objects: int = 12
+    """Keep at most this many highest-objectness regions as objects."""
+
+    depth_coherence_weight: float = 0.5
+    """Weight of depth coherence in the objectness score. A region whose depth
+    varies little is more likely a compact object than a ground/sky sweep."""
+
+    colour_distinctness_weight: float = 0.5
+    """Weight of colour distinctness (LAB distance to the scene mean) in the
+        objectness score."""
+
+    out_dir: str = "data/sample_runs/objects"
+    """Where to write objects.png / objects.npz."""
+
+
+@dataclass
+class TripoSplatConfig:
+    """Stage -0.5b: TripoSplat-style per-object 3D generation.
+
+    Follows the TripoSplat architecture at demo scale: each object crop is
+    lifted to a *triplane* feature representation (three orthogonal planes,
+    ``XY`` / ``YZ`` / ``ZX``) from a painting view plus a depth-warped side
+    view, cross-view aligned; 3D Gaussians are then decoded from triplane
+    samples and refined against the object's painting-view crop. The real
+    TripoSplat checkpoints can replace the synthetic encoder/decoder behind
+    the same interface.
+    """
+
+    triplane_resolution: int = 32
+    """Spatial resolution of each triplane plane (R x R)."""
+
+    triplane_channels: int = 8
+    """Feature channels per triplane plane (density + RGB + density variance)."""
+
+    query_resolution: int = 16
+    """Query-grid resolution per axis inside the object's unit cube; each
+    occupied query cell decodes into one 3D Gaussian."""
+
+    num_side_views: int = 1
+    """Number of depth-warped side views fused into the triplane in addition to
+    the painting view (the TripoSplat cross-view cue)."""
+
+    side_view_angle_deg: float = 20.0
+    """Orbit angle of the first side view around the object's vertical axis."""
+
+    refinement_iters: int = 40
+    """Gradient steps refining the decoded Gaussians' scales/opacities/colours
+    against the object's painting-view crop (per object)."""
+
+    min_gaussians_per_object: int = 32
+    """Objects decoding to fewer Gaussians are padded with jittered samples so
+    every object remains renderable."""
+
+
+@dataclass
+class SceneCanvasConfig:
+    """Stage -0.5c: spatial-dependency graph + 3D scene canvas.
+
+    The canvas is the explicit 3D scaffold of the scene: a ground plane, the
+    placed object set (each with a rigid transform + oriented bounding box),
+    the pairwise spatial relations between objects, and the background strokes
+    that are not part of any object. The canvas conditions Stage 0 (composited
+    depth control) and Stage 3.2 (object-rigid anchors + relation
+    preservation).
+    """
+
+    ground_plane_weight: float = 0.6
+    """Fraction of the scene's lowest points used to fit the ground plane."""
+
+    support_contact_tol: float = 0.12
+    """Vertical gap (fraction of scene height) below which 'rests on / supports'
+    edges are declared between two objects or an object and the ground."""
+
+    adjacency_tol: float = 0.25
+    """Horizontal gap (fraction of scene width) below which two objects are
+    declared adjacent."""
+
+    occlusion_min_overlap: float = 0.05
+    """Minimum 2D mask overlap (fraction of the smaller mask) plus depth
+    ordering needed to declare an in-front-of / behind edge."""
+
+    enable_canvas_depth_control: bool = True
+    """If True, Stage 0's per-frame depth-warp control is composited from the
+    canvas (objects occlude correctly) instead of warping the raw painting
+    depth."""
+
+    enable_object_rigid_gs: bool = True
+    """If True, Stage 3.2 keeps each object's Gaussians rigidly coupled by a
+    learnable per-object SE(3) delta, so optimisation moves objects as wholes
+    and preserves the dependency graph."""
+
+    relation_preservation_weight: float = 0.10
+    """Weight of the relation-preservation loss (supports / rests-on contacts
+    must stay in contact) during canvas-anchored GS training."""
+
+    out_dir: str = "data/sample_runs/canvas"
+    """Where to write canvas.npz / layout.png / relations.json."""
+
+
+@dataclass
 class PaintingAnchoredAlignmentConfig:
     """Stage 1 extension: painting-anchored non-rigid ICP."""
 
@@ -177,6 +295,9 @@ class Paint2WorldConfig:
     out_root: str = "data/sample_runs/paint2world"
 
     painting: PaintingAnalysisConfig = field(default_factory=PaintingAnalysisConfig)
+    objects: ObjectSegmentationConfig = field(default_factory=ObjectSegmentationConfig)
+    triposplat: TripoSplatConfig = field(default_factory=TripoSplatConfig)
+    canvas: SceneCanvasConfig = field(default_factory=SceneCanvasConfig)
     video: VideoGenerationConfig = field(default_factory=VideoGenerationConfig)
     alignment: PaintingAnchoredAlignmentConfig = field(
         default_factory=PaintingAnchoredAlignmentConfig
@@ -185,6 +306,7 @@ class Paint2WorldConfig:
 
     # ---- Pipeline control ----
     run_stage_minus_1: bool = True
+    run_stage_object: bool = True
     run_stage_0: bool = True
     run_stage_1: bool = True
     run_stage_2: bool = False

@@ -464,8 +464,14 @@ def generate_video(
     painting_rgb: torch.Tensor,
     painting_depth: torch.Tensor,
     painting_strokes: Optional[torch.Tensor] = None,
+    depth_control_override: Optional[torch.Tensor] = None,
 ) -> dict:
     """Run Stage 0: painting-conditioned video generation.
+
+    ``depth_control_override``: optional (H, W) depth map (in [0, 1]) that
+    replaces the raw painting depth inside the depth-warp control sequence —
+    the scene canvas supplies its composited object-aware depth here, so the
+    geometry control respects object occlusion boundaries.
 
     Returns a dict with the generated frames, the camera trajectory, and the
     depth-warp control sequence.
@@ -480,9 +486,10 @@ def generate_video(
         device=device,
     )
 
-    # 2. Depth-warp geometry control.
+    # 2. Depth-warp geometry control (canvas-composited when provided).
+    depth_src = painting_depth if depth_control_override is None else depth_control_override
     depth_warp_control = depth_warp_control_sequence(
-        painting_depth, trajectory, strength=cfg.depth_warp_control_strength
+        depth_src, trajectory, strength=cfg.depth_warp_control_strength
     )
 
     # 3. Stroke-consistency attention bias.

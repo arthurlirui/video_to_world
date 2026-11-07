@@ -90,7 +90,7 @@ def run_main(out_dir, num_frames=10, stage1_iters=40, stage3_iters=120):
 
 
 def run_ablation(out_dir, num_frames=10, stage1_iters=40, stage3_iters=120):
-    print("\n=== ABLATION: 6 variants on landscape ===", flush=True)
+    print("\n=== ABLATION: 9 variants on landscape ===", flush=True)
     p = _safe(LANDSCAPE)
     jsonl = os.path.join(out_dir, "ablation.jsonl")
     variants = [
@@ -101,6 +101,9 @@ def run_ablation(out_dir, num_frames=10, stage1_iters=40, stage3_iters=120):
         ("no_depth_warp_consistency", {"enable_depth_warp_consistency": False}),
         ("no_stroke_coherence", {"enable_stroke_coherence": False}),
         ("no_painting_view", {"enable_painting_view": False}),
+        ("no_object_scene", {"enable_object_scene": False}),
+        ("no_canvas_depth", {"enable_canvas_depth": False}),
+        ("no_object_rigid", {"enable_object_rigid": False}),
         ("no_all_painting_controls", {
             "enable_depth_warp": False, "enable_stroke_attn": False,
             "enable_painting_anchor": False, "enable_depth_warp_consistency": False,

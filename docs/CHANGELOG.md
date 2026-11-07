@@ -12,10 +12,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changes that have been merged but not yet released. (Move entries to a version section when releasing.)
 
 ### Added
-- _(none yet)_
+- **Paint2World v2.0 — object-level scene construction (Stage -0.5)**:
+  - `paint2world/object_segmentation.py`: depth-aware object instance
+    segmentation (LAB + depth clustering, depth-gradient barriers,
+    objectness ranking; SAM2 / Mask2Former hooks).
+  - `paint2world/triposplat.py`: TripoSplat-style per-object 3D generation —
+    triplane encode (colour/density/depth planes), Gaussian decode, pseudo
+    multi-view synthesis + ICP cross-view alignment, painting-view crop
+    refinement.
+  - `paint2world/scene_canvas.py`: 3D spatial-dependency graph
+    (rests-on/supports, in-front-of/behind, adjacent, rests-on-ground),
+    ground-plane fit, physical placement of floating objects, canvas
+    Gaussians + hole-free splat z-buffer depth, and canvas-anchored
+    (object-rigid + relation-preservation) GS training.
+  - Pipeline integration: `--no_stage_object`, `--no_canvas_depth`,
+    `--no_object_rigid` CLI toggles; Stage 0 consumes the canvas-composited
+    depth control; Stage 3.2 inits from the canvas.
+  - Evaluation: new metrics (`num_objects`, `num_relations`,
+    `placement_adjusted`, `canvas_painting_l1`, `object_depth_consistency`,
+    `relation_gap_drift`) and three new ablation variants
+    (`no_object_scene`, `no_canvas_depth`, `no_object_rigid`).
+  - Tests: `tests/test_object_branch.py` (16 tests) and
+    `tests/test_pipeline_integration.py` (4 tests) — full suite 20 passed.
+  - Docs: `docs/modules/paint2world.md`; README "Paint2World" section.
+  - Paper: Stage -0.5 method section, canvas figure, object-branch ablation
+    table, updated abstract/intro/related work/conclusion.
 
 ### Changed
-- _(none yet)_
+- `paint2world` version bumped to 2.0.0 (object-level scene branch).
 
 ### Deprecated
 - _(none yet)_

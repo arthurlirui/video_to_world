@@ -270,6 +270,61 @@ They can be modified via CLI parameters for detailed configuration of the indivi
 The scenes that we show in the paper can be downloaded [here](https://kaldir.vc.in.tum.de/hoellein/video_to_world/data_release.zip).
 The subfolder ```vdm``` contains the generated videos of different video models, while the subfolder ```worldexplorer``` contains the frames for five sample scenes generated with [WorldExplorer](https://github.com/mschneider456/worldexplorer).
 
+## Paint2World: Oil-Painting-Driven Video and 3D Scene Generation
+
+`paint2world/` is a self-contained extension that turns a **single human oil
+painting** into a 3D-consistent flythrough video and a 3D Gaussian Splatting
+scene, with an explicit object-level 3D scene scaffold. It runs end-to-end on
+CPU with synthetic backends (no CUDA, no checkpoints required).
+
+**Pipeline.**
+- **Stage -1 — Painting analysis**: perceptual depth, normals, brush-stroke
+  segmentation, confidence.
+- **Stage -0.5 — Object-level scene construction**:
+  - *object segmentation* (`object_segmentation.py`): depth-aware LAB+depth
+    clustering with connected components and an objectness ranking
+    (SAM2 / Mask2Former plug in behind the same interface);
+  - *TripoSplat-style 3D object generation* (`triposplat.py`): per-object
+    triplane encode → Gaussian decode, with depth-warped pseudo side views,
+    cross-view ICP alignment, and painting-view crop refinement;
+  - *scene canvas* (`scene_canvas.py`): a 3D spatial-dependency graph
+    (rests-on / supports / in-front-of / adjacent / rests-on-ground), a fitted
+    ground plane, physical placement of floating objects, and the composed
+    object + background Gaussian set.
+- **Stage 0 — Canvas-conditioned video generation**: depth-warp geometry
+  control composited from the canvas, stroke-consistency attention bias.
+- **Stage 1 — Painting-anchored non-rigid alignment**: painting-initialised
+  canonical frame + depth-warp per-point consistency weights.
+- **Stage 3.2 — Stroke-coherent, object-rigid 3DGS**: stroke-coherence loss,
+  per-object SE(3) rigid anchors, relation-preservation loss, painting-view
+  reconstruction loss.
+
+**Quickstart.**
+
+```bash
+# Full pipeline on a sample painting (CPU, ~2 min)
+python -m paint2world.pipeline --painting data/sample_paintings/sample_00_landscape.png --out_root data/sample_runs/paint2world
+
+# Component toggles
+python -m paint2world.pipeline --painting ... --no_stage_object     # skip object branch
+python -m paint2world.pipeline --painting ... --no_canvas_depth     # raw painting depth control
+python -m paint2world.pipeline --painting ... --no_object_rigid     # free-position GS training
+
+# Gradio demo UI
+python -m paint2world.demo
+
+# Reproduce all paper numbers
+python -m paint2world.run_experiments --out results_v2
+python -m paint2world.make_tables results_v2
+
+# Unit + integration tests (20 tests, CPU)
+python -m pytest tests/ -q
+```
+
+Outputs land in `out_root/stage_minus_1`, `stage_object/{objects,triposplat,canvas}`,
+`stage_0` (video.mp4), `stage_1`, and `stage_3` (gaussians.npz +
+render_painting_view.png). The paper draft is in `paper/paper.tex`.
+
 ## Acknowledgements
 
 Our work builds on top of amazing open-source projects. We thank the authors for making their code available.

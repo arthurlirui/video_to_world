@@ -5,6 +5,7 @@ Detailed documentation for every module and source file in the project. Each ent
 ## Table of Contents
 
 - [Top-Level Pipeline Scripts](#top-level-pipeline-scripts)
+- [paint2world/ — Oil-Painting-Driven Video & 3D Scene Generation](paint2world.md)
 - [algos/ — Core Algorithms](algos.md)
 - [configs/ — Configuration Dataclasses](configs.md)
 - [data/ — Data Loading & Checkpoint I/O](data.md)
