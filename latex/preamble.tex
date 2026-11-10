@@ -1,0 +1,33 @@
+%% Preamble tweaks for the Paint2World paper, following the CVPR 2027
+%% author-kit convention: additional packages are loaded here, before hyperref.
+
+%% Official support for 2-column teaser figure
+\usepackage{cuted} %< for strip environment
+
+%% For auto-referencing of figures (see fig/teaser.tex and \label{} therein)
+\usepackage{currfile} %< for \currfilebase macro
+
+%% Caption and (global) spacing overrides
+\usepackage{caption} %< for "\captionof" commands (teaser)
+
+%% Math, tables, and figures used throughout the paper.
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+
+%% Work harder in optimizing text layout (kept enabled: the tables are dense).
+\usepackage{microtype}
+
+%% Inline annotations; for predefined colors, refer to "dvipsnames" in xcolor
+\newcommand{\red}[1]{{\color{red}#1}}
+\newcommand{\todo}[1]{{\color{red}#1}}
+\newcommand{\TODO}[1]{\textbf{\color{red}[TODO: #1]}}
+%% Disable for camera ready / submission by uncommenting these lines:
+% \renewcommand{\TODO}[1]{}
+% \renewcommand{\todo}[1]{#1}
+
+%% Commonly used math definitions.
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}

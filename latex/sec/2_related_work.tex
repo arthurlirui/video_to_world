@@ -1,0 +1,53 @@
+%------------------------------------------------------------------------------
+% Related Work
+%------------------------------------------------------------------------------
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Diffusion models for scene generation.}
+Early 3D-aware generation used score distillation~\cite{dreamfusion,magic3d};
+more recent works finetune video diffusion models for camera
+control~\cite{viewcrafter,gen3c,seva,cameractrl} or for
+consistency~\cite{consisti2v}. Our work is orthogonal: we treat the VDM as a
+black-box frame generator and resolve 3D inconsistency on the reconstruction
+side, following~\cite{hoellein2026worldreconstruction,worldexplorer}. Our
+novel contribution is to use the \emph{input painting} as a stability prior
+that conditions both generation and reconstruction.
+
+\paragraph{Geometric foundation models.}
+GFMs such as DepthAnything-3~\cite{da3}, VGGT~\cite{vggt}, and
+DUSt3R~\cite{dust3r} predict per-frame depth, confidence, and cameras. They
+reveal generative drift as non-overlapping surfaces but cannot fix
+it~\cite{hoellein2026worldreconstruction}. We use a GFM (or, for the out-of-
+the-box demo, a perceptual synthetic depth estimator) to lift the painting
+into a canonical-frame prior.
+
+\paragraph{Point-cloud alignment.}
+Iterative closest point (ICP)~\cite{icp,coloredicp}, volumetric
+fusion~\cite{kinectfusion}, and non-rigid dynamic
+reconstruction~\cite{dynamicfusion} align point clouds into a canonical frame.
+Our Stage 1 extends the non-rigid frame-to-model ICP
+of~\cite{hoellein2026worldreconstruction} with a painting-anchor canonical
+initialisation and a depth-warp consistency weighting.
+
+\paragraph{Object-level 3D generation and scene layout.}
+Feed-forward image-to-3D models~\cite{lrm} and triplane
+representations~\cite{triplane2021} generate object-level geometry from one
+or few images; TripoSplat~\cite{triposplat2025} reconstructs objects as
+Gaussians decoded from a cross-view-aligned triplane at interactive speed.
+Image segmentation (SAM2~\cite{sam2}, Mask2Former~\cite{mask2former})
+supplies the object decomposition, and layout-generation methods compose
+objects into scenes from spatial relations~\cite{scenecanvas2024}. Paint2World
+connects these threads for the painting domain: segmentation supplies
+\emph{things}, a TripoSplat-style decoder supplies \emph{their 3D geometry},
+and the spatial-dependency graph composes them into an explicit scene canvas
+that then conditions video generation and reconstruction.
+
+\paragraph{Image-to-3D and artistic-content 3D.}
+Prior work lifts a single image to 3D via depth
+warping~\cite{sin3dgen,deep3dim} or learned priors~\cite{pixel3dmm}. Closer to
+us, artistic-style 3D generation~\cite{artistic3d,luciddreamer} transfers
+style to a 3D representation. Paint2World instead treats the painting as a
+geometric and structural \emph{prior}, not just a style target, and uses it to
+stabilise both the video generation and the 3D reconstruction.

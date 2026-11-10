@@ -1,0 +1,38 @@
+%------------------------------------------------------------------------------
+% Conclusion
+%------------------------------------------------------------------------------
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented Paint2World, a pipeline that turns a single human oil painting
+into a 3D-consistent flythrough video and a 3D Gaussian Splatting scene by
+treating the painting as a canonical prior. At its core is an explicit
+object-level scene canvas: the painting is decomposed into objects by
+depth-aware image segmentation, each object is generated in 3D by a
+TripoSplat-style triplane-to-Gaussian decoder, and the objects are composed
+through a physically-resolved spatial-dependency graph on a fitted ground
+plane. The canvas, together with the depth-warp geometry control,
+painting-anchored non-rigid alignment, and the stroke-coherent object-rigid
+3DGS objective, each measurably improves 3D consistency, painting fidelity,
+and scene-structure preservation. The demo runs end-to-end on a single CPU
+with synthetic backends; swapping in DepthAnything-3, SAM2, pretrained
+TripoSplat weights, Wan-2.2 I2V, and gsplat yields the production-grade
+deployment. We see Paint2World as a step toward letting artists author 3D
+worlds with the same brush they already use to author 2D ones.
+
+\paragraph{Limitations and future work.}
+The painting-anchored prior assumes the painting depicts a single, coherent
+3D scene; highly stylised or non-figurative paintings may violate this. The
+depth-warp control is most effective when the painting's depth is itself
+accurate; a real GFM (DepthAnything-3) is recommended for production.
+Likewise the synthetic object segmenter and triplane decoder bound the
+quality of the canvas; pretrained SAM2 and TripoSplat checkpoints plug in
+behind the same interfaces. Like the underlying
+method~\cite{hoellein2026worldreconstruction}, Paint2World addresses
+geometric drift but not VDM hallucinations (objects appearing or disappearing
+across frames) --- though the canvas's per-object identity makes such
+hallucinations \emph{detectable} (a generated object with no canvas
+counterpart), which we leave for future work, as is feeding the
+painting-anchor loss back as a finetuning signal to the VDM, closing the
+loop between reconstruction and generation.

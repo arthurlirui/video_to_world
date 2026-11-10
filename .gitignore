@@ -33,3 +33,34 @@ third_party/
 
 # Logs
 *.log
+
+# Heavy experiment artifacts (videos, point clouds, per-stage outputs) — only
+# the small JSON metrics files are tracked. Regenerate via
+# `python -m paint2world.run_experiments`.
+results/*/
+results_v2/*/
+results_log.txt
+results_v2_log.txt
+!results/*.json
+!results/*.jsonl
+!results_v2/*.json
+!results_v2/*.jsonl
+
+# Large sample-run / demo outputs (regenerable)
+data/sample_runs/
+demo_output/
+
+# Reference paper PDF (copyright)
+2603.16736v2.pdf
+
+# LaTeX build artifacts
+latex/*.aux
+latex/*.bbl
+latex/*.blg
+latex/*.brf
+latex/*.log
+latex/*.out
+latex/*.pdf
+
+# Paper section backups
+latex/sec/*.bak

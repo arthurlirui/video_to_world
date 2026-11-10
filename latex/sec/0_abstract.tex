@@ -1,0 +1,34 @@
+%------------------------------------------------------------------------------
+% Abstract
+%------------------------------------------------------------------------------
+
+Video diffusion models can animate a static image into a flythrough, but the
+generated frames rarely form a geometrically consistent 3D scene, which makes
+downstream 3D reconstruction brittle. We observe that when the input is a
+\emph{human oil painting}, the painting itself is a strong, user-authored
+canonical prior: it fixes the appearance, the brush-stroke layout, the object
+decomposition, and a plausible depth arrangement of the scene. We propose
+\textbf{Paint2World}, a pipeline that exploits this prior to generate
+3D-consistent video and a 3D Gaussian Splatting scene from a single oil
+painting. Paint2World first constructs an explicit \emph{scene canvas}: it
+segments the painting into objects with a depth-aware image-segmentation
+front-end, generates each object in 3D with a TripoSplat-style
+triplane-to-Gaussian decoder over the object's painting view and
+depth-warped side views, and wires the objects into a 3D spatial-dependency
+graph (who supports whom, who occludes whom, who rests on the ground) whose
+contacts are resolved physically on a fitted ground plane. The canvas then
+anchors three 3D-stability mechanisms: (i)~a painting-conditioned video
+generation stage whose depth-warp geometry control is composited from the
+canvas so generated frames respect object occlusion boundaries, with the
+painting locked as a reference frame in the diffusion temporal attention via
+a stroke-mask attention bias; (ii)~a painting-anchored non-rigid alignment
+that initialises the canonical frame from the painting's estimated geometry
+and downweights generated points whose depth drifts beyond a tolerance from
+the painting-implied structure; and (iii)~a stroke-coherent, object-rigid 3D
+Gaussian Splatting objective in which each object moves as a whole via a
+learnable SE(3) delta and a relation-preservation loss keeps the dependency
+graph intact during optimisation. We show that Paint2World produces
+3D-consistent, explorable scenes from oil paintings, and that the object-level
+canvas and each stability mechanism measurably improve 3D consistency,
+painting fidelity, and scene-structure preservation. The demo and code are
+released with synthetic backends that run end-to-end on a single CPU.
